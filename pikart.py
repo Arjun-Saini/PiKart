@@ -1,6 +1,7 @@
 import pygame
 import sys
 import os
+import math
 
 # =============================================================================
 # Constants
@@ -24,6 +25,9 @@ MAX_PHYSICS_DT = 1.0 / 30.0
 PLAYER_RESTITUTION = 0.3
 COLLISION_SLOP = 0.05
 MAX_COLLISION_PASSES = 2
+PLAYER_ANG_ACCEL = 10.0
+PLAYER_ANG_DAMP = 5.0
+PLAYER_MAX_ANG_VEL = 4.5
 
 # colors
 COLOR_BACKGROUND = ( 30,  30,  30)
@@ -33,6 +37,7 @@ COLOR_TRIANGLE   = (  0,   0,   0)
 COLOR_POWERUP1   = (255, 220,   0)
 COLOR_POWERUP2   = (120, 220, 255)
 COLOR_PLAYER     = (220,  30,  30)
+COLOR_PLAYER2    = ( 30, 100, 220)
 COLOR_SPAWN      = (50,  100,  50)
 
 # tile information
@@ -86,6 +91,11 @@ TILE_TYPE_INFO = {
         'is_wall': False,
         'shape': 'rect',
     },
+    'player2_spawn': {
+        'color': COLOR_SPAWN,
+        'is_wall': False,
+        'shape': 'rect',
+    },
 }
 
 
@@ -118,7 +128,8 @@ CHAR_TO_TILE_TYPE = {
     '#': 'wall',
     '*': 'powerup1',
     '+': 'powerup2',
-    '1': 'player1_spawn'
+    '1': 'player1_spawn',
+    '2': 'player2_spawn',
 }
 
 
@@ -134,20 +145,30 @@ class Tile:
         self.grid_y: int = grid_y
         self.world_rect: pygame.Rect = pygame.Rect(grid_x * TILE_SIZE, grid_y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
 
-    # draws this tile in screen space using tile metadata.
-    def draw(self, surface: pygame.Surface, screen_rect: pygame.Rect):
+    # draws this tile in screen space using camera transform.
+    def draw(self, surface: pygame.Surface, camera):
         info = TILE_TYPE_INFO.get(self.tile_type, TILE_TYPE_INFO['open'])
+        rect = self.world_rect
+        rect_points_world = [
+            (rect.left, rect.top),
+            (rect.right, rect.top),
+            (rect.right, rect.bottom),
+            (rect.left, rect.bottom),
+        ]
+        rect_points_screen = [camera.world_to_screen_point(x, y) for x, y in rect_points_world]
+
         if info['shape'] == 'rect':
-            pygame.draw.rect(surface, info['color'], screen_rect)
+            pygame.draw.polygon(surface, info['color'], rect_points_screen)
             return
 
-        # avoid pixels clipping on tile boundaries
-        x, y, w, h = screen_rect
-        max_x = max(w - 1, 0)
-        max_y = max(h - 1, 0)
-        points = [(int(x + px * max_x), int(y + py * max_y)) for px, py in info['points']]
-        pygame.draw.rect(surface, TILE_TYPE_INFO['open']['color'], screen_rect)
-        pygame.draw.polygon(surface, info['color'], points)
+        # Draw base open tile first, then triangle overlay to preserve triangle semantics.
+        pygame.draw.polygon(surface, TILE_TYPE_INFO['open']['color'], rect_points_screen)
+        tri_points_world = [
+            (rect.x + px * TILE_SIZE, rect.y + py * TILE_SIZE)
+            for px, py in info['points']
+        ]
+        tri_points_screen = [camera.world_to_screen_point(x, y) for x, y in tri_points_world]
+        pygame.draw.polygon(surface, info['color'], tri_points_screen)
 
 
 # converts a map file into a tile matrix
@@ -159,7 +180,9 @@ class Map:
         self.pixel_width: int = 0
         self.pixel_height: int = 0
         self.player1_spawn: tuple[float, float] | None = None
-        spawn_count = 0
+        self.player2_spawn: tuple[float, float] | None = None
+        player1_spawn_count = 0
+        player2_spawn_count = 0
 
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"Map file not found: {filepath}")
@@ -180,14 +203,25 @@ class Map:
                 tile_type = CHAR_TO_TILE_TYPE.get(tile_char, 'open')
                 
                 if tile_type == 'player1_spawn':
-                    spawn_count += 1
+                    player1_spawn_count += 1
                     self.player1_spawn = (
+                        col_idx * TILE_SIZE + TILE_SIZE / 2,
+                        row_idx * TILE_SIZE + TILE_SIZE / 2,
+                    )
+                elif tile_type == 'player2_spawn':
+                    player2_spawn_count += 1
+                    self.player2_spawn = (
                         col_idx * TILE_SIZE + TILE_SIZE / 2,
                         row_idx * TILE_SIZE + TILE_SIZE / 2,
                     )
 
                 row.append(Tile(tile_type=tile_type, grid_x=col_idx, grid_y=row_idx))
             self.grid.append(row)
+
+        if player1_spawn_count != 1:
+            raise ValueError(f"Map must contain exactly one '1' spawn marker, found {player1_spawn_count}.")
+        if player2_spawn_count != 1:
+            raise ValueError(f"Map must contain exactly one '2' spawn marker, found {player2_spawn_count}.")
 
         # smooth diagonals with triangle walls
         square_walls = [[tile.tile_type == 'wall' for tile in row] for row in self.grid]
@@ -216,6 +250,33 @@ class Map:
         row_end = min(self.rows, world_rect.bottom // TILE_SIZE + 1)
         return [self.grid[row][col] for row in range(row_start, row_end) for col in range(col_start, col_end)]
 
+    # renders the static map into a world-space surface once for seam-free rotated blitting.
+    def build_surface(self) -> pygame.Surface:
+        map_surface = pygame.Surface((self.pixel_width, self.pixel_height), pygame.SRCALPHA)
+
+        for row in self.grid:
+            for tile in row:
+                info = TILE_TYPE_INFO.get(tile.tile_type, TILE_TYPE_INFO['open'])
+                rect = tile.world_rect
+
+                if info['shape'] == 'rect':
+                    pygame.draw.rect(map_surface, info['color'], rect)
+                    continue
+
+                # Draw base open tile first, then triangle overlay for corner semantics.
+                pygame.draw.rect(map_surface, TILE_TYPE_INFO['open']['color'], rect)
+                max_idx = TILE_SIZE - 1
+                tri_points = [
+                    (
+                        int(rect.x + px * max_idx),
+                        int(rect.y + py * max_idx),
+                    )
+                    for px, py in info['points']
+                ]
+                pygame.draw.polygon(map_surface, info['color'], tri_points)
+
+        return map_surface
+
 
 # camera view that converts between world and screen coordinates
 class Camera:
@@ -224,33 +285,75 @@ class Camera:
         self.viewport_h: int = viewport_h
         self.offset_x: float = 0.0
         self.offset_y: float = 0.0
+        self.heading: float = 0.0
 
     # centers the camera on a world-space point.
     def center_on(self, world_x: float, world_y: float):
         self.offset_x = world_x - self.viewport_w / 2
         self.offset_y = world_y - self.viewport_h / 2
 
+    # sets camera heading to keep vehicle front as up-screen in rendering.
+    def set_heading(self, heading: float):
+        self.heading = heading
+
     # returns the currently visible world-space rectangle.
     def get_world_rect(self) -> pygame.Rect:
-        return pygame.Rect(int(self.offset_x), int(self.offset_y), self.viewport_w, self.viewport_h)
+        # Expand culling bounds for rotated camera view to prevent edge pop-in.
+        diag = int(math.sqrt(self.viewport_w * self.viewport_w + self.viewport_h * self.viewport_h))
+        margin = max((diag - min(self.viewport_w, self.viewport_h)) // 2, TILE_SIZE)
+        return pygame.Rect(
+            int(self.offset_x) - margin,
+            int(self.offset_y) - margin,
+            self.viewport_w + 2 * margin,
+            self.viewport_h + 2 * margin,
+        )
 
-    # converts a world-space rectangle into screen-space coordinates.
-    def world_to_screen(self, world_rect: pygame.Rect) -> pygame.Rect:
-        return pygame.Rect(world_rect.x - int(self.offset_x), world_rect.y - int(self.offset_y), world_rect.width, world_rect.height)
+    # converts a world-space point to screen coordinates with camera-heading rotation.
+    def world_to_screen_point(self, world_x: float, world_y: float) -> tuple[int, int]:
+        center_world_x = self.offset_x + self.viewport_w / 2
+        center_world_y = self.offset_y + self.viewport_h / 2
+        dx = world_x - center_world_x
+        dy = world_y - center_world_y
+
+        # Forward vector of vehicle in world coordinates.
+        fwd_x = math.cos(self.heading)
+        fwd_y = math.sin(self.heading)
+        right_x = fwd_y
+        right_y = -fwd_x
+
+        screen_x = dx * right_x + dy * right_y + self.viewport_w / 2
+        screen_y = -(dx * fwd_x + dy * fwd_y) + self.viewport_h / 2
+        return (round(screen_x), round(screen_y))
 
 
 # handles vehicle position, movement, and rendering surface
 class Vehicle:
-    def __init__(self, start_x: float, start_y: float):
+    def __init__(
+        self,
+        start_x: float,
+        start_y: float,
+        throttle_forward_key: int,
+        throttle_back_key: int,
+        steer_left_key: int,
+        steer_right_key: int,
+        color: tuple[int, int, int],
+    ):
         self.world_x: float = start_x
         self.world_y: float = start_y
         self.vel_x: float = 0.0
         self.vel_y: float = 0.0
-        self.input_x: int = 0
-        self.input_y: int = 0
+        self.throttle_input: int = 0
+        self.steer_input: int = 0
+        self.heading: float = 0.0
+        self.ang_vel: float = 0.0
+        self.throttle_forward_key: int = throttle_forward_key
+        self.throttle_back_key: int = throttle_back_key
+        self.steer_left_key: int = steer_left_key
+        self.steer_right_key: int = steer_right_key
+        self.color: tuple[int, int, int] = color
 
         self.surface: pygame.Surface = pygame.Surface((PLAYER_SIZE, PLAYER_SIZE), pygame.SRCALPHA)
-        self.surface.fill(COLOR_PLAYER)
+        self.surface.fill(self.color)
         pygame.draw.rect(self.surface, (0, 0, 0), self.surface.get_rect(), 1)
 
     # returns the world-space rectangle of the player
@@ -261,13 +364,19 @@ class Vehicle:
     def handle_input(self):
         keys = pygame.key.get_pressed()
 
-        self.input_x = int(keys[pygame.K_RIGHT]) - int(keys[pygame.K_LEFT])
-        self.input_y = int(keys[pygame.K_DOWN]) - int(keys[pygame.K_UP])
+        self.throttle_input = int(keys[self.throttle_forward_key]) - int(keys[self.throttle_back_key])
+        self.steer_input = int(keys[self.steer_right_key]) - int(keys[self.steer_left_key])
 
     # steps velocity and position using input acceleration and drag
     def update_physics(self, dt: float):
-        accel_x = PLAYER_ACCEL * self.input_x - PLAYER_DRAG * self.vel_x
-        accel_y = PLAYER_ACCEL * self.input_y - PLAYER_DRAG * self.vel_y
+        ang_acc = PLAYER_ANG_ACCEL * self.steer_input - PLAYER_ANG_DAMP * self.ang_vel
+        self.ang_vel += ang_acc * dt
+        self.ang_vel = clamp(self.ang_vel, -PLAYER_MAX_ANG_VEL, PLAYER_MAX_ANG_VEL)
+        self.heading = (self.heading + self.ang_vel * dt) % (2.0 * math.pi)
+
+        forward_accel = PLAYER_ACCEL * self.throttle_input
+        accel_x = forward_accel * math.cos(self.heading) - PLAYER_DRAG * self.vel_x
+        accel_y = forward_accel * math.sin(self.heading) - PLAYER_DRAG * self.vel_y
 
         self.vel_x += accel_x * dt
         self.vel_y += accel_y * dt
@@ -322,9 +431,19 @@ class Vehicle:
                 return None
         return rect_tile_contact_mtv(player_rect, tile.world_rect)
 
-    # draws the player sprite at the given screen rectangle.
-    def draw(self, surface: pygame.Surface, screen_rect: pygame.Rect):
-        surface.blit(self.surface, screen_rect.topleft)
+    # draws the player through the camera transform.
+    def draw(self, surface: pygame.Surface, camera, viewport_rect: pygame.Rect | None = None):
+        if viewport_rect is None:
+            viewport_rect = pygame.Rect(0, 0, camera.viewport_w, camera.viewport_h)
+
+        screen_rect = pygame.Rect(
+            viewport_rect.centerx - PLAYER_SIZE // 2,
+            viewport_rect.centery - PLAYER_SIZE // 2,
+            PLAYER_SIZE,
+            PLAYER_SIZE,
+        )
+        pygame.draw.rect(surface, self.color, screen_rect)
+        pygame.draw.rect(surface, (0, 0, 0), screen_rect, 1)
 
 
 # =============================================================================
@@ -369,13 +488,51 @@ def triangle_mask_overlap(player_rect: pygame.Rect, tile_rect: pygame.Rect, tile
     return tri_mask.overlap(PLAYER_COLLISION_MASK, offset) is not None
 
 # renders only map tiles that are inside the camera viewport
-def render_map(screen: pygame.Surface, game_map: Map, camera: Camera):
-    for tile in game_map.get_tiles_in_rect(camera.get_world_rect()):
-        tile.draw(screen, camera.world_to_screen(tile.world_rect))
+def render_map(
+    screen: pygame.Surface,
+    map_surface: pygame.Surface,
+    camera: Camera,
+    viewport_rect: pygame.Rect | None = None,
+    overlay_players: list[Vehicle] | None = None,
+):
+    if viewport_rect is None:
+        viewport_rect = pygame.Rect(0, 0, camera.viewport_w, camera.viewport_h)
+
+    # Build a camera-centered square patch, then rotate it around the screen center.
+    diag = int(math.ceil(math.sqrt(camera.viewport_w * camera.viewport_w + camera.viewport_h * camera.viewport_h))) + 2 * TILE_SIZE
+    patch_surface = pygame.Surface((diag, diag), pygame.SRCALPHA)
+
+    camera_center_world_x = camera.offset_x + camera.viewport_w / 2.0
+    camera_center_world_y = camera.offset_y + camera.viewport_h / 2.0
+    patch_left_world = camera_center_world_x - diag / 2.0
+    patch_top_world = camera_center_world_y - diag / 2.0
+
+    patch_surface.blit(
+        map_surface,
+        (-int(round(patch_left_world)), -int(round(patch_top_world))),
+    )
+
+    if overlay_players is not None:
+        for overlay_player in overlay_players:
+            local_x = int(round(overlay_player.world_x - patch_left_world))
+            local_y = int(round(overlay_player.world_y - patch_top_world))
+            remote_rect = pygame.Rect(
+                local_x - PLAYER_SIZE // 2,
+                local_y - PLAYER_SIZE // 2,
+                PLAYER_SIZE,
+                PLAYER_SIZE,
+            )
+            pygame.draw.rect(patch_surface, overlay_player.color, remote_rect)
+            pygame.draw.rect(patch_surface, (0, 0, 0), remote_rect, 1)
+
+    angle_deg = math.degrees(camera.heading) + 90.0
+    rotated_map = pygame.transform.rotate(patch_surface, angle_deg)
+    rotated_rect = rotated_map.get_rect(center=viewport_rect.center)
+    screen.blit(rotated_map, rotated_rect)
 
 # renders the player through the camera transform
-def render_player(screen: pygame.Surface, player: Vehicle, camera: Camera):
-    player.draw(screen, camera.world_to_screen(player.get_bounding_rect()))
+def render_player(screen: pygame.Surface, player: Vehicle, camera: Camera, viewport_rect: pygame.Rect | None = None):
+    player.draw(screen, camera, viewport_rect)
 
 
 # =============================================================================
@@ -388,8 +545,30 @@ pygame.display.set_caption("PiKart")
 clock = pygame.time.Clock()
 
 game_map = Map(MAP_FILE)
-player = Vehicle(*(game_map.player1_spawn))
-camera = Camera(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+map_surface = game_map.build_surface()
+half_viewport_w = VIEWPORT_WIDTH // 2
+left_viewport = pygame.Rect(0, 0, half_viewport_w, VIEWPORT_HEIGHT)
+right_viewport = pygame.Rect(half_viewport_w, 0, VIEWPORT_WIDTH - half_viewport_w, VIEWPORT_HEIGHT)
+
+player1 = Vehicle(
+    *(game_map.player1_spawn),
+    throttle_forward_key=pygame.K_UP,
+    throttle_back_key=pygame.K_DOWN,
+    steer_left_key=pygame.K_LEFT,
+    steer_right_key=pygame.K_RIGHT,
+    color=COLOR_PLAYER,
+)
+player2 = Vehicle(
+    *(game_map.player2_spawn),
+    throttle_forward_key=pygame.K_w,
+    throttle_back_key=pygame.K_s,
+    steer_left_key=pygame.K_a,
+    steer_right_key=pygame.K_d,
+    color=COLOR_PLAYER2,
+)
+
+camera1 = Camera(left_viewport.width, left_viewport.height)
+camera2 = Camera(right_viewport.width, right_viewport.height)
 
 running = True
 while running:
@@ -401,14 +580,33 @@ while running:
 
     dt = min(clock.tick(FPS) / 1000.0, MAX_PHYSICS_DT)
 
-    player.handle_input()
-    player.update_physics(dt)
-    player.resolve_collisions(game_map)
-    camera.center_on(player.world_x, player.world_y)
+    player1.handle_input()
+    player2.handle_input()
+
+    player1.update_physics(dt)
+    player2.update_physics(dt)
+
+    player1.resolve_collisions(game_map)
+    player2.resolve_collisions(game_map)
+
+    camera1.center_on(player1.world_x, player1.world_y)
+    camera1.set_heading(player1.heading)
+    camera2.center_on(player2.world_x, player2.world_y)
+    camera2.set_heading(player2.heading)
 
     screen.fill(COLOR_BACKGROUND)
-    render_map(screen, game_map, camera)
-    render_player(screen, player, camera)
+
+    screen.set_clip(left_viewport)
+    render_map(screen, map_surface, camera1, left_viewport, overlay_players=[player2])
+    render_player(screen, player1, camera1, left_viewport)
+
+    screen.set_clip(right_viewport)
+    render_map(screen, map_surface, camera2, right_viewport, overlay_players=[player1])
+    render_player(screen, player2, camera2, right_viewport)
+
+    screen.set_clip(None)
+    pygame.draw.line(screen, (0, 0, 0), (half_viewport_w, 0), (half_viewport_w, VIEWPORT_HEIGHT), 2)
+
     pygame.display.flip()
 
 pygame.quit()
