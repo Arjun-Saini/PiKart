@@ -17,7 +17,10 @@ TILE_SIZE = 10
 
 # player vehicle
 PLAYER_SIZE = 10
-PLAYER_SPEED = 3
+PLAYER_ACCEL = 900.0
+PLAYER_DRAG = 2.0
+PLAYER_MAX_SPEED_SAFETY = 500.0
+MAX_PHYSICS_DT = 1.0 / 30.0
 
 # colors
 COLOR_BACKGROUND = ( 30,  30,  30)
@@ -27,6 +30,7 @@ COLOR_TRIANGLE   = (  0,   0,   0)
 COLOR_POWERUP1   = (255, 220,   0)
 COLOR_POWERUP2   = (120, 220, 255)
 COLOR_PLAYER     = (220,  30,  30)
+COLOR_SPAWN      = (50,  100,  50)
 
 # tile information
 TILE_TYPE_INFO = {
@@ -74,12 +78,18 @@ TILE_TYPE_INFO = {
         'is_wall': False,
         'shape': 'rect',
     },
+    'player1_spawn': {
+        'color': COLOR_SPAWN,
+        'is_wall': False,
+        'shape': 'rect',
+    },
 }
 
 CHAR_TO_TILE_TYPE = {
     '#': 'wall',
     '*': 'powerup1',
     '+': 'powerup2',
+    '1': 'player1_spawn'
 }
 
 
@@ -119,6 +129,8 @@ class Map:
         self.cols: int = 0
         self.pixel_width: int = 0
         self.pixel_height: int = 0
+        self.player1_spawn: tuple[float, float] | None = None
+        spawn_count = 0
 
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"Map file not found: {filepath}")
@@ -137,6 +149,14 @@ class Map:
             for col_idx in range(self.cols):
                 tile_char = line[col_idx] if col_idx < len(line) else ' '
                 tile_type = CHAR_TO_TILE_TYPE.get(tile_char, 'open')
+                
+                if tile_type == 'player1_spawn':
+                    spawn_count += 1
+                    self.player1_spawn = (
+                        col_idx * TILE_SIZE + TILE_SIZE / 2,
+                        row_idx * TILE_SIZE + TILE_SIZE / 2,
+                    )
+
                 row.append(Tile(tile_type=tile_type, grid_x=col_idx, grid_y=row_idx))
             self.grid.append(row)
 
@@ -205,6 +225,10 @@ class Vehicle:
     def __init__(self, start_x: float, start_y: float):
         self.world_x: float = start_x
         self.world_y: float = start_y
+        self.vel_x: float = 0.0
+        self.vel_y: float = 0.0
+        self.input_x: int = 0
+        self.input_y: int = 0
 
         self.surface: pygame.Surface = pygame.Surface((PLAYER_SIZE, PLAYER_SIZE), pygame.SRCALPHA)
         self.surface.fill(COLOR_PLAYER)
@@ -214,18 +238,26 @@ class Vehicle:
     def get_bounding_rect(self) -> pygame.Rect:
         return pygame.Rect(int(self.world_x) - PLAYER_SIZE // 2, int(self.world_y) - PLAYER_SIZE // 2, PLAYER_SIZE, PLAYER_SIZE)
 
-    # TODO: temp
-    # updates player position from arrow-key input
+    # updates input direction from arrow keys
     def handle_input(self):
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_LEFT]:
-            self.world_x -= PLAYER_SPEED
-        if keys[pygame.K_RIGHT]:
-            self.world_x += PLAYER_SPEED
-        if keys[pygame.K_UP]:
-            self.world_y -= PLAYER_SPEED
-        if keys[pygame.K_DOWN]:
-            self.world_y += PLAYER_SPEED
+
+        self.input_x = int(keys[pygame.K_RIGHT]) - int(keys[pygame.K_LEFT])
+        self.input_y = int(keys[pygame.K_DOWN]) - int(keys[pygame.K_UP])
+
+    # steps velocity and position using input acceleration and drag
+    def update_physics(self, dt: float):
+        accel_x = PLAYER_ACCEL * self.input_x - PLAYER_DRAG * self.vel_x
+        accel_y = PLAYER_ACCEL * self.input_y - PLAYER_DRAG * self.vel_y
+
+        self.vel_x += accel_x * dt
+        self.vel_y += accel_y * dt
+
+        self.vel_x = clamp(self.vel_x, -PLAYER_MAX_SPEED_SAFETY, PLAYER_MAX_SPEED_SAFETY)
+        self.vel_y = clamp(self.vel_y, -PLAYER_MAX_SPEED_SAFETY, PLAYER_MAX_SPEED_SAFETY)
+
+        self.world_x += self.vel_x * dt
+        self.world_y += self.vel_y * dt
 
     # draws the player sprite at the given screen rectangle.
     def draw(self, surface: pygame.Surface, screen_rect: pygame.Rect):
@@ -235,6 +267,9 @@ class Vehicle:
 # =============================================================================
 # Helpers
 # =============================================================================
+
+def clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(value, high))
 
 # renders only map tiles that are inside the camera viewport
 def render_map(screen: pygame.Surface, game_map: Map, camera: Camera):
@@ -257,7 +292,7 @@ pygame.display.set_caption("PiKart")
 clock = pygame.time.Clock()
 
 game_map = Map(MAP_FILE)
-player = Vehicle(*game_map.find_open_cell())
+player = Vehicle(*(game_map.player1_spawn))
 camera = Camera(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
 
 running = True
@@ -268,15 +303,16 @@ while running:
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             running = False
 
+    dt = min(clock.tick(FPS) / 1000.0, MAX_PHYSICS_DT)
+
     player.handle_input()
+    player.update_physics(dt)
     camera.center_on(player.world_x, player.world_y)
 
     screen.fill(COLOR_BACKGROUND)
     render_map(screen, game_map, camera)
     render_player(screen, player, camera)
     pygame.display.flip()
-
-    clock.tick(FPS)
 
 pygame.quit()
 sys.exit()
