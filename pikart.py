@@ -21,6 +21,9 @@ PLAYER_ACCEL = 900.0
 PLAYER_DRAG = 2.0
 PLAYER_MAX_SPEED_SAFETY = 500.0
 MAX_PHYSICS_DT = 1.0 / 30.0
+PLAYER_RESTITUTION = 0.3
+COLLISION_SLOP = 0.05
+MAX_COLLISION_PASSES = 2
 
 # colors
 COLOR_BACKGROUND = ( 30,  30,  30)
@@ -84,6 +87,32 @@ TILE_TYPE_INFO = {
         'shape': 'rect',
     },
 }
+
+
+def _build_triangle_mask(normalized_points: tuple[tuple[float, float], ...]) -> pygame.mask.Mask:
+    surface = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+    max_idx = TILE_SIZE - 1
+    pixel_points = [
+        (int(px * max_idx), int(py * max_idx))
+        for px, py in normalized_points
+    ]
+    pygame.draw.polygon(surface, (255, 255, 255), pixel_points)
+    return pygame.mask.from_surface(surface)
+
+
+def _build_player_rect_mask() -> pygame.mask.Mask:
+    size = PLAYER_SIZE
+    surface = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.rect(surface, (255, 255, 255), surface.get_rect())
+    return pygame.mask.from_surface(surface)
+
+
+TRIANGLE_MASKS = {
+    tile_type: _build_triangle_mask(tile_info['points'])
+    for tile_type, tile_info in TILE_TYPE_INFO.items()
+    if tile_info.get('shape') == 'tri'
+}
+PLAYER_COLLISION_MASK = _build_player_rect_mask()
 
 CHAR_TO_TILE_TYPE = {
     '#': 'wall',
@@ -187,16 +216,6 @@ class Map:
         row_end = min(self.rows, world_rect.bottom // TILE_SIZE + 1)
         return [self.grid[row][col] for row in range(row_start, row_end) for col in range(col_start, col_end)]
 
-    # TODO: temp
-    # finds the first non-wall tile center for player spawn.
-    def find_open_cell(self):
-        for row in self.grid:
-            for tile in row:
-                tile_info = TILE_TYPE_INFO.get(tile.tile_type, TILE_TYPE_INFO['open'])
-                if not tile_info['is_wall']:
-                    return (tile.world_rect.centerx, tile.world_rect.centery)
-        return (self.pixel_width / 2, self.pixel_height / 2)
-
 
 # camera view that converts between world and screen coordinates
 class Camera:
@@ -259,6 +278,50 @@ class Vehicle:
         self.world_x += self.vel_x * dt
         self.world_y += self.vel_y * dt
 
+    # resolves wall collisions using a rectangle-player collider and MTV response.
+    def resolve_collisions(self, game_map: Map):
+        for _ in range(MAX_COLLISION_PASSES):
+            corrected = False
+            broad_rect = self.get_bounding_rect()
+            for tile in game_map.get_tiles_in_rect(broad_rect):
+                tile_info = TILE_TYPE_INFO.get(tile.tile_type, TILE_TYPE_INFO['open'])
+                if not tile_info['is_wall']:
+                    continue
+
+                player_rect = self.get_bounding_rect()
+                contact = self._contact_with_tile(tile, tile_info, player_rect)
+                if contact is None:
+                    continue
+
+                normal_x, normal_y, penetration = contact
+                if penetration <= 0.0:
+                    continue
+
+                corrected = True
+                push = penetration + COLLISION_SLOP
+                self.world_x += normal_x * push
+                self.world_y += normal_y * push
+
+                vn = self.vel_x * normal_x + self.vel_y * normal_y
+                if vn < 0.0:
+                    bounce = (1.0 + PLAYER_RESTITUTION) * vn
+                    self.vel_x -= bounce * normal_x
+                    self.vel_y -= bounce * normal_y
+
+            if not corrected:
+                break
+
+        if abs(self.vel_x) < 1e-3:
+            self.vel_x = 0.0
+        if abs(self.vel_y) < 1e-3:
+            self.vel_y = 0.0
+
+    def _contact_with_tile(self, tile: Tile, tile_info: dict, player_rect: pygame.Rect) -> tuple[float, float, float] | None:
+        if tile_info['shape'] == 'tri':
+            if not triangle_mask_overlap(player_rect, tile.world_rect, tile.tile_type):
+                return None
+        return rect_tile_contact_mtv(player_rect, tile.world_rect)
+
     # draws the player sprite at the given screen rectangle.
     def draw(self, surface: pygame.Surface, screen_rect: pygame.Rect):
         surface.blit(self.surface, screen_rect.topleft)
@@ -271,11 +334,44 @@ class Vehicle:
 def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(value, high))
 
+
+def rect_tile_contact_mtv(player_rect: pygame.Rect, rect: pygame.Rect) -> tuple[float, float, float] | None:
+    if not player_rect.colliderect(rect):
+        return None
+
+    overlap_left = player_rect.right - rect.left
+    overlap_right = rect.right - player_rect.left
+    overlap_top = player_rect.bottom - rect.top
+    overlap_bottom = rect.bottom - player_rect.top
+
+    overlap_x = min(overlap_left, overlap_right)
+    overlap_y = min(overlap_top, overlap_bottom)
+
+    if overlap_x <= 0.0 or overlap_y <= 0.0:
+        return None
+
+    if overlap_x < overlap_y:
+        if player_rect.centerx < rect.centerx:
+            return (-1.0, 0.0, overlap_x)
+        return (1.0, 0.0, overlap_x)
+
+    if player_rect.centery < rect.centery:
+        return (0.0, -1.0, overlap_y)
+    return (0.0, 1.0, overlap_y)
+
+
+def triangle_mask_overlap(player_rect: pygame.Rect, tile_rect: pygame.Rect, tile_type: str) -> bool:
+    tri_mask = TRIANGLE_MASKS.get(tile_type)
+    if tri_mask is None:
+        return False
+
+    offset = (player_rect.left - tile_rect.left, player_rect.top - tile_rect.top)
+    return tri_mask.overlap(PLAYER_COLLISION_MASK, offset) is not None
+
 # renders only map tiles that are inside the camera viewport
 def render_map(screen: pygame.Surface, game_map: Map, camera: Camera):
     for tile in game_map.get_tiles_in_rect(camera.get_world_rect()):
         tile.draw(screen, camera.world_to_screen(tile.world_rect))
-
 
 # renders the player through the camera transform
 def render_player(screen: pygame.Surface, player: Vehicle, camera: Camera):
@@ -307,6 +403,7 @@ while running:
 
     player.handle_input()
     player.update_physics(dt)
+    player.resolve_collisions(game_map)
     camera.center_on(player.world_x, player.world_y)
 
     screen.fill(COLOR_BACKGROUND)
