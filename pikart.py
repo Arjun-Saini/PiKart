@@ -1,6 +1,5 @@
 import pygame
 import sys
-import os
 import math
 
 # =============================================================================
@@ -112,7 +111,7 @@ TILE_TYPE_INFO = {
 }
 
 
-def _build_triangle_mask(normalized_points: tuple[tuple[float, float], ...]) -> pygame.mask.Mask:
+def build_triangle_mask(normalized_points: tuple[tuple[float, float], ...]) -> pygame.mask.Mask:
     surface = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
     max_idx = TILE_SIZE - 1
     pixel_points = [
@@ -123,7 +122,7 @@ def _build_triangle_mask(normalized_points: tuple[tuple[float, float], ...]) -> 
     return pygame.mask.from_surface(surface)
 
 
-def _build_player_rect_mask() -> pygame.mask.Mask:
+def build_player_rect_mask() -> pygame.mask.Mask:
     size = PLAYER_SIZE
     surface = pygame.Surface((size, size), pygame.SRCALPHA)
     pygame.draw.rect(surface, (255, 255, 255), surface.get_rect())
@@ -131,11 +130,11 @@ def _build_player_rect_mask() -> pygame.mask.Mask:
 
 
 TRIANGLE_MASKS = {
-    tile_type: _build_triangle_mask(tile_info['points'])
+    tile_type: build_triangle_mask(tile_info['points'])
     for tile_type, tile_info in TILE_TYPE_INFO.items()
     if tile_info.get('shape') == 'tri'
 }
-PLAYER_COLLISION_MASK = _build_player_rect_mask()
+PLAYER_COLLISION_MASK = build_player_rect_mask()
 
 CHAR_TO_TILE_TYPE = {
     '#': 'wall',
@@ -151,38 +150,11 @@ CHAR_TO_TILE_TYPE = {
 # Game objects
 # =============================================================================
 
-# represents one map tile and renders it based on tile_type.
+# represents one map tile; stores its type and world-space rect
 class Tile:
     def __init__(self, tile_type: str, grid_x: int, grid_y: int):
         self.tile_type: str = tile_type
-        self.grid_x: int = grid_x
-        self.grid_y: int = grid_y
         self.world_rect: pygame.Rect = pygame.Rect(grid_x * TILE_SIZE, grid_y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-
-    # draws this tile in screen space using camera transform.
-    def draw(self, surface: pygame.Surface, camera):
-        info = TILE_TYPE_INFO.get(self.tile_type, TILE_TYPE_INFO['open'])
-        rect = self.world_rect
-        rect_points_world = [
-            (rect.left, rect.top),
-            (rect.right, rect.top),
-            (rect.right, rect.bottom),
-            (rect.left, rect.bottom),
-        ]
-        rect_points_screen = [camera.world_to_screen_point(x, y) for x, y in rect_points_world]
-
-        if info['shape'] == 'rect':
-            pygame.draw.polygon(surface, info['color'], rect_points_screen)
-            return
-
-        # Draw base open tile first, then triangle overlay to preserve triangle semantics.
-        pygame.draw.polygon(surface, TILE_TYPE_INFO['open']['color'], rect_points_screen)
-        tri_points_world = [
-            (rect.x + px * TILE_SIZE, rect.y + py * TILE_SIZE)
-            for px, py in info['points']
-        ]
-        tri_points_screen = [camera.world_to_screen_point(x, y) for x, y in tri_points_world]
-        pygame.draw.polygon(surface, info['color'], tri_points_screen)
 
 
 # converts a map file into a tile matrix
@@ -193,17 +165,11 @@ class Map:
         self.cols: int = 0
         self.pixel_width: int = 0
         self.pixel_height: int = 0
-        self.player1_spawn: tuple[float, float] | None = None
-        self.player2_spawn: tuple[float, float] | None = None
-        self.finish_line_x: float | None = None
-        self.finish_line_y_min: float | None = None
-        self.finish_line_y_max: float | None = None
-        player1_spawn_count = 0
-        player2_spawn_count = 0
-        finish_tiles: list[tuple[int, int]] = []
-
-        if not os.path.isfile(filepath):
-            raise FileNotFoundError(f"Map file not found: {filepath}")
+        self.player1_spawn: tuple[float, float] = (0.0, 0.0)
+        self.player2_spawn: tuple[float, float] = (0.0, 0.0)
+        self.finish_line_x: float = 0.0
+        self.finish_line_y_min: float = 0.0
+        self.finish_line_y_max: float = 0.0
 
         with open(filepath, 'r') as f:
             lines = f.read().splitlines()
@@ -213,22 +179,28 @@ class Map:
         self.pixel_width = self.cols * TILE_SIZE
         self.pixel_height = self.rows * TILE_SIZE
 
+        player1_spawn: tuple[float, float] | None = None
+        player2_spawn: tuple[float, float] | None = None
+        finish_tiles: list[tuple[int, int]] = []
+
         # assign each tile directly from the map characters
         for row_idx, line in enumerate(lines):
             row = []
             for col_idx in range(self.cols):
                 tile_char = line[col_idx] if col_idx < len(line) else ' '
                 tile_type = CHAR_TO_TILE_TYPE.get(tile_char, 'open')
-                
+
                 if tile_type == 'player1_spawn':
-                    player1_spawn_count += 1
-                    self.player1_spawn = (
+                    if player1_spawn is not None:
+                        raise ValueError("Map must contain exactly one '1' spawn marker.")
+                    player1_spawn = (
                         col_idx * TILE_SIZE + TILE_SIZE / 2,
                         row_idx * TILE_SIZE + TILE_SIZE / 2,
                     )
                 elif tile_type == 'player2_spawn':
-                    player2_spawn_count += 1
-                    self.player2_spawn = (
+                    if player2_spawn is not None:
+                        raise ValueError("Map must contain exactly one '2' spawn marker.")
+                    player2_spawn = (
                         col_idx * TILE_SIZE + TILE_SIZE / 2,
                         row_idx * TILE_SIZE + TILE_SIZE / 2,
                     )
@@ -238,10 +210,10 @@ class Map:
                 row.append(Tile(tile_type=tile_type, grid_x=col_idx, grid_y=row_idx))
             self.grid.append(row)
 
-        if player1_spawn_count != 1:
-            raise ValueError(f"Map must contain exactly one '1' spawn marker, found {player1_spawn_count}.")
-        if player2_spawn_count != 1:
-            raise ValueError(f"Map must contain exactly one '2' spawn marker, found {player2_spawn_count}.")
+        if player1_spawn is None:
+            raise ValueError("Map must contain a '1' spawn marker.")
+        if player2_spawn is None:
+            raise ValueError("Map must contain a '2' spawn marker.")
 
         if len(finish_tiles) != 7:
             raise ValueError(f"Map must contain exactly seven '|' finish markers, found {len(finish_tiles)}.")
@@ -255,6 +227,8 @@ class Map:
             raise ValueError("Finish markers must be contiguous vertically.")
 
         finish_col = next(iter(finish_cols))
+        self.player1_spawn = player1_spawn
+        self.player2_spawn = player2_spawn
         self.finish_line_x = finish_col * TILE_SIZE + TILE_SIZE / 2
         self.finish_line_y_min = finish_rows[0] * TILE_SIZE
         self.finish_line_y_max = (finish_rows[-1] + 1) * TILE_SIZE
@@ -271,12 +245,6 @@ class Map:
                 if square_walls[row_idx][col_idx + 1] and square_walls[row_idx + 1][col_idx]:
                     self.grid[row_idx][col_idx].tile_type = 'tri_bottom_right'
                     self.grid[row_idx + 1][col_idx + 1].tile_type = 'tri_top_left'
-
-    # returns the tile at the specified coordinates
-    def tile_at(self, grid_x: int, grid_y: int):
-        if 0 <= grid_y < self.rows and 0 <= grid_x < self.cols:
-            return self.grid[grid_y][grid_x]
-        return None
 
     # returns all tiles intersecting a world-space rectangle
     def get_tiles_in_rect(self, world_rect: pygame.Rect) -> list:
@@ -314,7 +282,7 @@ class Map:
         return map_surface
 
 
-# camera view that converts between world and screen coordinates
+# camera view that tracks a world-space point and a heading for rotated rendering
 class Camera:
     def __init__(self, viewport_w: int, viewport_h: int):
         self.viewport_w: int = viewport_w
@@ -331,35 +299,6 @@ class Camera:
     # sets camera heading to keep vehicle front as up-screen in rendering.
     def set_heading(self, heading: float):
         self.heading = heading
-
-    # returns the currently visible world-space rectangle.
-    def get_world_rect(self) -> pygame.Rect:
-        # Expand culling bounds for rotated camera view to prevent edge pop-in.
-        diag = int(math.sqrt(self.viewport_w * self.viewport_w + self.viewport_h * self.viewport_h))
-        margin = max((diag - min(self.viewport_w, self.viewport_h)) // 2, TILE_SIZE)
-        return pygame.Rect(
-            int(self.offset_x) - margin,
-            int(self.offset_y) - margin,
-            self.viewport_w + 2 * margin,
-            self.viewport_h + 2 * margin,
-        )
-
-    # converts a world-space point to screen coordinates with camera-heading rotation.
-    def world_to_screen_point(self, world_x: float, world_y: float) -> tuple[int, int]:
-        center_world_x = self.offset_x + self.viewport_w / 2
-        center_world_y = self.offset_y + self.viewport_h / 2
-        dx = world_x - center_world_x
-        dy = world_y - center_world_y
-
-        # Forward vector of vehicle in world coordinates.
-        fwd_x = math.cos(self.heading)
-        fwd_y = math.sin(self.heading)
-        right_x = fwd_y
-        right_y = -fwd_x
-
-        screen_x = dx * right_x + dy * right_y + self.viewport_w / 2
-        screen_y = -(dx * fwd_x + dy * fwd_y) + self.viewport_h / 2
-        return (round(screen_x), round(screen_y))
 
 
 # handles vehicle position, movement, and rendering surface
@@ -389,7 +328,6 @@ class Vehicle:
         self.lap_timer: float = 0.0
         self.total_timer: float = 0.0
         self.race_finished: bool = False
-        self.finish_time: float | None = None
         self.finish_place: int | None = None
         self.ignore_first_forward_cross: bool = True
         self.throttle_forward_key: int = throttle_forward_key
@@ -397,10 +335,6 @@ class Vehicle:
         self.steer_left_key: int = steer_left_key
         self.steer_right_key: int = steer_right_key
         self.color: tuple[int, int, int] = color
-
-        self.surface: pygame.Surface = pygame.Surface((PLAYER_SIZE, PLAYER_SIZE), pygame.SRCALPHA)
-        self.surface.fill(self.color)
-        pygame.draw.rect(self.surface, (0, 0, 0), self.surface.get_rect(), 1)
 
     # returns the world-space rectangle of the player
     def get_bounding_rect(self) -> pygame.Rect:
@@ -447,7 +381,7 @@ class Vehicle:
                     continue
 
                 player_rect = self.get_bounding_rect()
-                contact = self._contact_with_tile(tile, tile_info, player_rect)
+                contact = self.contact_with_tile(tile, tile_info, player_rect)
                 if contact is None:
                     continue
 
@@ -474,20 +408,17 @@ class Vehicle:
         if abs(self.vel_y) < 1e-3:
             self.vel_y = 0.0
 
-    def _contact_with_tile(self, tile: Tile, tile_info: dict, player_rect: pygame.Rect) -> tuple[float, float, float] | None:
+    def contact_with_tile(self, tile: Tile, tile_info: dict, player_rect: pygame.Rect) -> tuple[float, float, float] | None:
         if tile_info['shape'] == 'tri':
             if not triangle_mask_overlap(player_rect, tile.world_rect, tile.tile_type):
                 return None
         return rect_tile_contact_mtv(player_rect, tile.world_rect)
 
-    # draws the player through the camera transform.
-    def draw(self, surface: pygame.Surface, camera, viewport_rect: pygame.Rect | None = None):
-        if viewport_rect is None:
-            viewport_rect = pygame.Rect(0, 0, camera.viewport_w, camera.viewport_h)
-
+    # draws the player as a filled square centered on the given screen coordinates.
+    def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
         screen_rect = pygame.Rect(
-            viewport_rect.centerx - PLAYER_SIZE // 2,
-            viewport_rect.centery - PLAYER_SIZE // 2,
+            screen_x - PLAYER_SIZE // 2,
+            screen_y - PLAYER_SIZE // 2,
             PLAYER_SIZE,
             PLAYER_SIZE,
         )
@@ -541,9 +472,6 @@ def update_lap_progress(player: Vehicle, game_map: Map) -> bool:
     if player.race_finished:
         return False
 
-    if game_map.finish_line_x is None or game_map.finish_line_y_min is None or game_map.finish_line_y_max is None:
-        return False
-
     finish_x = game_map.finish_line_x
     dx = player.world_x - player.prev_world_x
     crossed_finish_line = (
@@ -569,7 +497,6 @@ def update_lap_progress(player: Vehicle, game_map: Map) -> bool:
             # Crossing forward while already on final lap completes the race.
             if player.curr_lap >= TOTAL_LAPS:
                 player.race_finished = True
-                player.finish_time = player.total_timer
                 return True
 
             player.curr_lap += 1
@@ -734,7 +661,7 @@ def create_race_objects(
     game_map: Map,
     left_viewport: pygame.Rect,
     right_viewport: pygame.Rect,
-) -> tuple[Vehicle, Vehicle, Camera, Camera, int]:
+) -> tuple[Vehicle, Vehicle, Camera, Camera]:
     player1 = Vehicle(
         *(game_map.player1_spawn),
         throttle_forward_key=pygame.K_UP,
@@ -759,8 +686,7 @@ def create_race_objects(
     camera2.center_on(player2.world_x, player2.world_y)
     camera2.set_heading(player2.heading)
 
-    next_finish_place = 1
-    return player1, player2, camera1, camera2, next_finish_place
+    return player1, player2, camera1, camera2
 
 # renders only map tiles that are inside the camera viewport
 def render_map(
@@ -791,23 +717,12 @@ def render_map(
         for overlay_player in overlay_players:
             local_x = int(round(overlay_player.world_x - patch_left_world))
             local_y = int(round(overlay_player.world_y - patch_top_world))
-            remote_rect = pygame.Rect(
-                local_x - PLAYER_SIZE // 2,
-                local_y - PLAYER_SIZE // 2,
-                PLAYER_SIZE,
-                PLAYER_SIZE,
-            )
-            pygame.draw.rect(patch_surface, overlay_player.color, remote_rect)
-            pygame.draw.rect(patch_surface, (0, 0, 0), remote_rect, 1)
+            overlay_player.draw(patch_surface, local_x, local_y)
 
     angle_deg = math.degrees(camera.heading) + 90.0
     rotated_map = pygame.transform.rotate(patch_surface, angle_deg)
     rotated_rect = rotated_map.get_rect(center=viewport_rect.center)
     screen.blit(rotated_map, rotated_rect)
-
-# renders the player through the camera transform
-def render_player(screen: pygame.Surface, player: Vehicle, camera: Camera, viewport_rect: pygame.Rect | None = None):
-    player.draw(screen, camera, viewport_rect)
 
 
 # =============================================================================
@@ -832,12 +747,13 @@ right_viewport = pygame.Rect(half_viewport_w, 0, VIEWPORT_WIDTH - half_viewport_
 start_button_rect = pygame.Rect(0, 0, 220, 84)
 start_button_rect.center = (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2)
 
-player1, player2, camera1, camera2, next_finish_place = create_race_objects(game_map, left_viewport, right_viewport)
+player1, player2, camera1, camera2 = create_race_objects(game_map, left_viewport, right_viewport)
 
 current_state = STATE_MENU
 countdown_remaining = 0.0
 go_display_remaining = 0.0
 post_race_return_remaining: float | None = None
+next_finish_place = 1
 
 running = True
 while running:
@@ -850,7 +766,8 @@ while running:
             running = False
         elif current_state == STATE_MENU and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if start_button_rect.collidepoint(event.pos):
-                player1, player2, camera1, camera2, next_finish_place = create_race_objects(game_map, left_viewport, right_viewport)
+                player1, player2, camera1, camera2 = create_race_objects(game_map, left_viewport, right_viewport)
+                next_finish_place = 1
                 current_state = STATE_GAME
                 countdown_remaining = COUNTDOWN_DURATION
                 go_display_remaining = 0.0
@@ -881,10 +798,10 @@ while running:
         player1_just_finished = update_lap_progress(player1, game_map)
         player2_just_finished = update_lap_progress(player2, game_map)
 
-        if player1_just_finished and player1.finish_place is None:
+        if player1_just_finished:
             player1.finish_place = next_finish_place
             next_finish_place += 1
-        if player2_just_finished and player2.finish_place is None:
+        if player2_just_finished:
             player2.finish_place = next_finish_place
             next_finish_place += 1
 
@@ -909,11 +826,6 @@ while running:
                     go_display_remaining = 0.0
                     post_race_return_remaining = None
                     continue
-    else:
-        player1.throttle_input = 0
-        player1.steer_input = 0
-        player2.throttle_input = 0
-        player2.steer_input = 0
 
     camera1.center_on(player1.world_x, player1.world_y)
     camera1.set_heading(player1.heading)
@@ -924,14 +836,14 @@ while running:
 
     screen.set_clip(left_viewport)
     render_map(screen, map_surface, camera1, left_viewport, overlay_players=[player2])
-    render_player(screen, player1, camera1, left_viewport)
+    player1.draw(screen, left_viewport.centerx, left_viewport.centery)
     render_lap_counter(screen, left_viewport, player1.max_lap, TOTAL_LAPS, hud_font)
     render_time_hud(screen, left_viewport, player1.total_timer, player1.lap_timer, hud_font)
     render_finish_place(screen, left_viewport, player1.finish_place, place_font)
 
     screen.set_clip(right_viewport)
     render_map(screen, map_surface, camera2, right_viewport, overlay_players=[player1])
-    render_player(screen, player2, camera2, right_viewport)
+    player2.draw(screen, right_viewport.centerx, right_viewport.centery)
     render_lap_counter(screen, right_viewport, player2.max_lap, TOTAL_LAPS, hud_font)
     render_time_hud(screen, right_viewport, player2.total_timer, player2.lap_timer, hud_font)
     render_finish_place(screen, right_viewport, player2.finish_place, place_font)
