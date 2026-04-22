@@ -1,6 +1,7 @@
 import pygame
 import sys
 import math
+import os
 
 # =============================================================================
 # Constants
@@ -13,13 +14,13 @@ FPS = 60
 TOTAL_LAPS = 3
 
 STATE_MENU = 'menu'
+STATE_MAP_SELECT = 'map_select'
 STATE_GAME = 'game'
+STATE_POST_RACE = 'post_race'
 COUNTDOWN_DURATION = 3.0
 GO_DISPLAY_DURATION = 0.75
-POST_RACE_RETURN_DELAY = 5.0
 
 # map
-MAP_FILE = 'map.txt'
 TILE_SIZE = 10
 
 # player vehicle
@@ -613,26 +614,116 @@ def render_finish_place(
     screen.blit(text_surface, text_rect)
 
 
+def scan_map_files() -> list[str]:
+    """Returns list of .txt filenames found in the current directory."""
+    entries = []
+    for name in os.listdir('.'):
+        if name.lower().endswith('.txt') and os.path.isfile(name):
+            entries.append(os.path.splitext(name)[0])
+    return sorted(entries)
+
+
+def make_button_rect(center_x: int, center_y: int, width: int = 220, height: int = 84) -> pygame.Rect:
+    """Returns a Rect centered at the given coordinates."""
+    rect = pygame.Rect(0, 0, width, height)
+    rect.center = (center_x, center_y)
+    return rect
+
+
+def draw_button(
+    screen: pygame.Surface,
+    rect: pygame.Rect,
+    label: str,
+    font: pygame.font.Font,
+    hovered: bool,
+    bg_normal: tuple[int, int, int] = (210, 210, 210),
+    bg_hover: tuple[int, int, int] = (235, 235, 235),
+    text_color: tuple[int, int, int] = (0, 0, 0),
+    border_color: tuple[int, int, int] = (0, 0, 0),
+    border_width: int = 3,
+):
+    """Draws a single button with hover highlight."""
+    bg_color = bg_hover if hovered else bg_normal
+    pygame.draw.rect(screen, bg_color, rect)
+    pygame.draw.rect(screen, border_color, rect, border_width)
+    text_surface = font.render(label, True, text_color)
+    text_rect = text_surface.get_rect(center=rect.center)
+    screen.blit(text_surface, text_rect)
+
+
 def render_menu(
     screen: pygame.Surface,
-    start_button_rect: pygame.Rect,
+    play_button_rect: pygame.Rect,
+    quit_button_rect: pygame.Rect,
     title_font: pygame.font.Font,
     button_font: pygame.font.Font,
 ):
+    """Renders the main menu with Play and Quit buttons."""
     screen.fill((25, 25, 25))
 
     title_surface = title_font.render('PiKart', True, (255, 255, 255))
-    title_rect = title_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 3))
+    title_rect = title_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 5))
     screen.blit(title_surface, title_rect)
 
     mouse_pos = pygame.mouse.get_pos()
-    button_color = (235, 235, 235) if start_button_rect.collidepoint(mouse_pos) else (210, 210, 210)
-    pygame.draw.rect(screen, button_color, start_button_rect)
-    pygame.draw.rect(screen, (0, 0, 0), start_button_rect, 3)
+    draw_button(screen, play_button_rect, 'Play', button_font, play_button_rect.collidepoint(mouse_pos))
+    draw_button(screen, quit_button_rect, 'Quit', button_font, quit_button_rect.collidepoint(mouse_pos))
 
-    button_text = button_font.render('Start', True, (0, 0, 0))
-    button_text_rect = button_text.get_rect(center=start_button_rect.center)
-    screen.blit(button_text, button_text_rect)
+
+def render_map_select(
+    screen: pygame.Surface,
+    map_names: list[str],
+    map_row_rects: list[pygame.Rect],
+    title_font: pygame.font.Font,
+    button_font: pygame.font.Font,
+    back_button_rect: pygame.Rect,
+):
+    """Renders the map selection screen with one clickable row per discovered map."""
+    screen.fill((25, 25, 25))
+
+    title_surface = title_font.render('Select Map', True, (255, 255, 255))
+    title_rect = title_surface.get_rect(center=(VIEWPORT_WIDTH // 2, 80))
+    screen.blit(title_surface, title_rect)
+
+    mouse_pos = pygame.mouse.get_pos()
+    for name, rect in zip(map_names, map_row_rects):
+        draw_button(
+            screen, rect, name, button_font, rect.collidepoint(mouse_pos),
+            bg_normal=(50, 50, 80), bg_hover=(80, 80, 130),
+            text_color=(255, 255, 255), border_color=(120, 120, 180),
+        )
+
+    if not map_names:
+        no_maps_surface = button_font.render('No .txt maps found in current directory.', True, (200, 80, 80))
+        no_maps_rect = no_maps_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2))
+        screen.blit(no_maps_surface, no_maps_rect)
+
+    draw_button(screen, back_button_rect, '< Back', button_font, back_button_rect.collidepoint(mouse_pos))
+
+
+def render_post_race(
+    screen: pygame.Surface,
+    replay_button_rect: pygame.Rect,
+    menu_button_rect: pygame.Rect,
+    title_font: pygame.font.Font,
+    button_font: pygame.font.Font,
+):
+    """Renders the post-race overlay with Replay and Menu buttons."""
+    overlay = pygame.Surface((VIEWPORT_WIDTH, VIEWPORT_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 160))
+    screen.blit(overlay, (0, 0))
+
+    title_surface = title_font.render('Race Over!', True, (255, 255, 255))
+    title_rect = title_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 80))
+    screen.blit(title_surface, title_rect)
+
+    mouse_pos = pygame.mouse.get_pos()
+    draw_button(
+        screen, replay_button_rect, 'Replay', button_font, replay_button_rect.collidepoint(mouse_pos),
+        bg_normal=(60, 140, 60), bg_hover=(90, 185, 90),
+        text_color=(255, 255, 255), border_color=(30, 90, 30),
+    )
+    draw_button(screen, menu_button_rect, 'Menu', button_font, menu_button_rect.collidepoint(mouse_pos))
 
 
 def render_center_overlay_message(
@@ -688,6 +779,7 @@ def create_race_objects(
 
     return player1, player2, camera1, camera2
 
+
 # renders only map tiles that are inside the camera viewport
 def render_map(
     screen: pygame.Surface,
@@ -739,21 +831,59 @@ countdown_font = pygame.font.SysFont(None, 110)
 menu_title_font = pygame.font.SysFont(None, 92)
 menu_button_font = pygame.font.SysFont(None, 48)
 
-game_map = Map(MAP_FILE)
-map_surface = game_map.build_surface()
 half_viewport_w = VIEWPORT_WIDTH // 2
 left_viewport = pygame.Rect(0, 0, half_viewport_w, VIEWPORT_HEIGHT)
 right_viewport = pygame.Rect(half_viewport_w, 0, VIEWPORT_WIDTH - half_viewport_w, VIEWPORT_HEIGHT)
-start_button_rect = pygame.Rect(0, 0, 220, 84)
-start_button_rect.center = (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2)
 
-player1, player2, camera1, camera2 = create_race_objects(game_map, left_viewport, right_viewport)
+# main menu buttons
+play_button_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 54)
+quit_button_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 + 54)
 
+# map select buttons (rebuilt each time STATE_MAP_SELECT is entered)
+map_names: list[str] = []
+map_row_rects: list[pygame.Rect] = []
+map_select_back_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT - 70, width=160, height=60)
+
+# post-race buttons
+replay_button_rect = make_button_rect(VIEWPORT_WIDTH // 2 - 110, VIEWPORT_HEIGHT // 2 + 20, width=180, height=64)
+post_race_menu_rect = make_button_rect(VIEWPORT_WIDTH // 2 + 110, VIEWPORT_HEIGHT // 2 + 20, width=180, height=64)
+
+# race state
+game_map: Map | None = None
+map_surface: pygame.Surface | None = None
+selected_map_file: str | None = None
+player1: Vehicle | None = None
+player2: Vehicle | None = None
+camera1: Camera | None = None
+camera2: Camera | None = None
 current_state = STATE_MENU
 countdown_remaining = 0.0
 go_display_remaining = 0.0
-post_race_return_remaining: float | None = None
 next_finish_place = 1
+
+
+def build_map_row_rects(count: int) -> list[pygame.Rect]:
+    """Returns vertically stacked button rects for the map list."""
+    row_height = 68
+    start_y = 160
+    cx = VIEWPORT_WIDTH // 2
+    return [
+        make_button_rect(cx, start_y + i * row_height, width=360, height=54)
+        for i in range(count)
+    ]
+
+
+def start_race(map_stem: str):
+    """Loads map_stem + '.txt', builds the map surface, and initialises race objects."""
+    global game_map, map_surface, player1, player2, camera1, camera2
+    global next_finish_place, countdown_remaining, go_display_remaining
+    game_map = Map(map_stem + '.txt')
+    map_surface = game_map.build_surface()
+    player1, player2, camera1, camera2 = create_race_objects(game_map, left_viewport, right_viewport)
+    next_finish_place = 1
+    countdown_remaining = COUNTDOWN_DURATION
+    go_display_remaining = 0.0
+
 
 running = True
 while running:
@@ -762,19 +892,72 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            running = False
-        elif current_state == STATE_MENU and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if start_button_rect.collidepoint(event.pos):
-                player1, player2, camera1, camera2 = create_race_objects(game_map, left_viewport, right_viewport)
-                next_finish_place = 1
-                current_state = STATE_GAME
-                countdown_remaining = COUNTDOWN_DURATION
-                go_display_remaining = 0.0
-                post_race_return_remaining = None
+            if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT):
+                current_state = STATE_MENU
+            else:
+                running = False
+
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = event.pos
+
+            if current_state == STATE_MENU:
+                if play_button_rect.collidepoint(pos):
+                    map_names = scan_map_files()
+                    map_row_rects = build_map_row_rects(len(map_names))
+                    current_state = STATE_MAP_SELECT
+                elif quit_button_rect.collidepoint(pos):
+                    running = False
+
+            elif current_state == STATE_MAP_SELECT:
+                if map_select_back_rect.collidepoint(pos):
+                    current_state = STATE_MENU
+                else:
+                    for i, rect in enumerate(map_row_rects):
+                        if rect.collidepoint(pos):
+                            selected_map_file = map_names[i]
+                            start_race(selected_map_file)
+                            current_state = STATE_GAME
+                            break
+
+            elif current_state == STATE_POST_RACE:
+                if replay_button_rect.collidepoint(pos) and selected_map_file is not None:
+                    start_race(selected_map_file)
+                    current_state = STATE_GAME
+                elif post_race_menu_rect.collidepoint(pos):
+                    current_state = STATE_MENU
 
     if current_state == STATE_MENU:
-        render_menu(screen, start_button_rect, menu_title_font, menu_button_font)
+        render_menu(screen, play_button_rect, quit_button_rect, menu_title_font, menu_button_font)
+        pygame.display.flip()
+        continue
+
+    if current_state == STATE_MAP_SELECT:
+        render_map_select(screen, map_names, map_row_rects, menu_title_font, menu_button_font, map_select_back_rect)
+        pygame.display.flip()
+        continue
+
+    if current_state == STATE_POST_RACE:
+        screen.fill(COLOR_BACKGROUND)
+
+        screen.set_clip(left_viewport)
+        render_map(screen, map_surface, camera1, left_viewport, overlay_players=[player2])
+        player1.draw(screen, left_viewport.centerx, left_viewport.centery)
+        render_lap_counter(screen, left_viewport, player1.max_lap, TOTAL_LAPS, hud_font)
+        render_time_hud(screen, left_viewport, player1.total_timer, player1.lap_timer, hud_font)
+        render_finish_place(screen, left_viewport, player1.finish_place, place_font)
+
+        screen.set_clip(right_viewport)
+        render_map(screen, map_surface, camera2, right_viewport, overlay_players=[player1])
+        player2.draw(screen, right_viewport.centerx, right_viewport.centery)
+        render_lap_counter(screen, right_viewport, player2.max_lap, TOTAL_LAPS, hud_font)
+        render_time_hud(screen, right_viewport, player2.total_timer, player2.lap_timer, hud_font)
+        render_finish_place(screen, right_viewport, player2.finish_place, place_font)
+
+        screen.set_clip(None)
+        pygame.draw.line(screen, (0, 0, 0), (half_viewport_w, 0), (half_viewport_w, VIEWPORT_HEIGHT), 2)
+        render_post_race(screen, replay_button_rect, post_race_menu_rect, menu_title_font, menu_button_font)
         pygame.display.flip()
         continue
 
@@ -816,16 +999,7 @@ while running:
         player2.resolve_collisions(game_map)
 
         if player1.race_finished and player2.race_finished:
-            if post_race_return_remaining is None:
-                post_race_return_remaining = POST_RACE_RETURN_DELAY
-            else:
-                post_race_return_remaining = max(0.0, post_race_return_remaining - dt)
-                if post_race_return_remaining == 0.0:
-                    current_state = STATE_MENU
-                    countdown_remaining = 0.0
-                    go_display_remaining = 0.0
-                    post_race_return_remaining = None
-                    continue
+            current_state = STATE_POST_RACE
 
     camera1.center_on(player1.world_x, player1.world_y)
     camera1.set_heading(player1.heading)
