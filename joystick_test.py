@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Analog 2-axis Joystick + Select Button 测试程序
+"""Analog 2-axis Joystick + Select Button Test
 
-接线:
+Wiring:
   MCP3008 CLK  -> GPIO 5
   MCP3008 MOSI -> GPIO 6
   MCP3008 MISO -> GPIO 13
   MCP3008 CS   -> GPIO 19
   Joystick VRx -> MCP3008 CH0
   Joystick VRy -> MCP3008 CH1
-  Joystick SW  -> GPIO 17 (内部上拉,按下为低电平)
+  Joystick SW  -> GPIO 27 (internal pull-up, active low) Joystick SW  -> GPIO 17 for second one
 """
 
 import pigpio
@@ -18,12 +18,12 @@ CLK  = 5
 MOSI = 6
 MISO = 13
 CS   = 19
-SW   = 17
+SW   = 27
 DEADZONE = 8
 
 pi = pigpio.pi()
 if not pi.connected:
-    print("错误:pigpiod 未启动，请先运行: sudo pigpiod")
+    print("Error: pigpiod not running, please run: sudo pigpiod")
     exit(1)
 
 pi.set_mode(CLK, pigpio.OUTPUT)
@@ -36,7 +36,7 @@ pi.set_pull_up_down(SW, pigpio.PUD_UP)
 pi.write(CS, 1)
 pi.write(CLK, 0)
 
-DELAY = 0.00001  # 10微秒
+DELAY = 0.00001  # 10 microseconds
 
 
 def read_mcp3008(channel):
@@ -55,7 +55,7 @@ def read_mcp3008(channel):
     time.sleep(DELAY)
     pi.write(CLK, 0)
     time.sleep(DELAY)
-    # 读 10 位
+    # read 10 bits
     result = 0
     for _ in range(10):
         pi.write(CLK, 1)
@@ -67,7 +67,7 @@ def read_mcp3008(channel):
     return result
 
 
-print("Joystick 测试启动 (Ctrl+C 退出)")
+print("Joystick Test Started (Ctrl+C to exit)")
 print("-" * 40)
 
 try:
@@ -85,14 +85,13 @@ try:
 
         dir_x = "←" if x_pct < -10 else "→" if x_pct > 10 else "·"
         dir_y = "↑" if y_pct < -10 else "↓" if y_pct > 10 else "·"
-        btn_str = "按下" if btn == 0 else "--"
+        btn_str = "PRESSED" if btn == 0 else "--"
 
         print(f"\rX: {x_pct:+4d}% {dir_x}  Y: {y_pct:+4d}% {dir_y}  "
               f"RAW({x_raw:4d},{y_raw:4d})  BTN: {btn_str}   ",
               end="", flush=True)
         time.sleep(0.1)
 except KeyboardInterrupt:
-    print("\n退出测试。")
+    print("\nTest exited.")
 finally:
     pi.stop()
-
