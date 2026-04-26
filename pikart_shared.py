@@ -1,42 +1,70 @@
-import pygame
-import sys
+import json
 import math
 import os
+import socket
+import struct
+
+import pygame
 
 # =============================================================================
-# Constants
+# Network constants
 # =============================================================================
 
-# display
+HOST_IP = '127.0.0.1'
+HOST_PORT = 5000
+
+# =============================================================================
+# Display constants
+# =============================================================================
+
 VIEWPORT_WIDTH = 800
 VIEWPORT_HEIGHT = 600
 FPS = 60
-TOTAL_LAPS = 3
 
-STATE_MENU = 'menu'
-STATE_MAP_SELECT = 'map_select'
-STATE_GAME = 'game'
-STATE_POST_RACE = 'post_race'
-COUNTDOWN_DURATION = 3.0
-GO_DISPLAY_DURATION = 0.75
+# =============================================================================
+# Game state identifiers
+# =============================================================================
 
-# map
+STATE_MENU        = 'menu'
+STATE_WAITING     = 'waiting'
+STATE_MAP_SELECT  = 'map_select'
+STATE_GAME        = 'game'
+STATE_POST_RACE   = 'post_race'
+
+# =============================================================================
+# Race constants
+# =============================================================================
+
+TOTAL_LAPS             = 3
+COUNTDOWN_DURATION     = 3.0
+GO_DISPLAY_DURATION    = 0.75
+MAX_PHYSICS_DT         = 1.0 / 30.0
+
+# =============================================================================
+# Map constants
+# =============================================================================
+
 TILE_SIZE = 10
 
-# player vehicle
-PLAYER_SIZE = 10
-PLAYER_ACCEL = 900.0
-PLAYER_DRAG = 2.0
-PLAYER_MAX_SPEED_SAFETY = 500.0
-MAX_PHYSICS_DT = 1.0 / 30.0
-PLAYER_RESTITUTION = 0.3
-COLLISION_SLOP = 0.05
-MAX_COLLISION_PASSES = 2
-PLAYER_ANG_ACCEL = 10.0
-PLAYER_ANG_DAMP = 5.0
-PLAYER_MAX_ANG_VEL = 4.5
+# =============================================================================
+# Vehicle constants
+# =============================================================================
 
-# colors
+PLAYER_SIZE            = 10
+PLAYER_ACCEL           = 900.0
+PLAYER_DRAG            = 2.0
+PLAYER_MAX_SPEED_SAFETY = 500.0
+PLAYER_RESTITUTION     = 0.3
+COLLISION_SLOP         = 0.05
+MAX_COLLISION_PASSES   = 2
+PLAYER_ANG_ACCEL       = 10.0
+PLAYER_ANG_DAMP        = 5.0
+PLAYER_MAX_ANG_VEL     = 4.5
+
+# =============================================================================
+# Colors
+# =============================================================================
+
 COLOR_BACKGROUND = ( 30,  30,  30)
 COLOR_OPEN       = (255, 255, 255)
 COLOR_WALL       = (  0,   0,   0)
@@ -45,10 +73,14 @@ COLOR_POWERUP1   = (255, 220,   0)
 COLOR_POWERUP2   = (120, 220, 255)
 COLOR_PLAYER     = (220,  30,  30)
 COLOR_PLAYER2    = ( 30, 100, 220)
-COLOR_SPAWN      = (50,  100,  50)
+COLOR_SPAWN      = ( 50, 100,  50)
 COLOR_FINISH     = (180, 180, 180)
+COLOR_ERROR      = (220,  60,  60)
 
-# tile information
+# =============================================================================
+# Tile type registry
+# =============================================================================
+
 TILE_TYPE_INFO = {
     'open': {
         'color': COLOR_OPEN,
@@ -111,6 +143,49 @@ TILE_TYPE_INFO = {
     },
 }
 
+CHAR_TO_TILE_TYPE = {
+    '#': 'wall',
+    '*': 'powerup1',
+    '+': 'powerup2',
+    '1': 'player1_spawn',
+    '2': 'player2_spawn',
+    '|': 'finish_line',
+}
+
+
+# =============================================================================
+# Network helpers
+# =============================================================================
+
+def send_msg(sock: socket.socket, payload: dict):
+    """Sends a length-prefixed JSON message on sock. Raises OSError on failure."""
+    data = json.dumps(payload).encode('utf-8')
+    header = struct.pack('>I', len(data))
+    sock.sendall(header + data)
+
+
+def recv_msg(sock: socket.socket) -> dict:
+    """Reads one length-prefixed JSON message from sock. Raises OSError on failure."""
+    header = recv_exactly(sock, 4)
+    length = struct.unpack('>I', header)[0]
+    data = recv_exactly(sock, length)
+    return json.loads(data.decode('utf-8'))
+
+
+def recv_exactly(sock: socket.socket, n: int) -> bytes:
+    """Reads exactly n bytes from sock, raising OSError if the connection closes."""
+    buf = b''
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise OSError('Connection closed.')
+        buf += chunk
+    return buf
+
+
+# =============================================================================
+# Map tile mask setup (called after pygame.init())
+# =============================================================================
 
 def build_triangle_mask(normalized_points: tuple[tuple[float, float], ...]) -> pygame.mask.Mask:
     surface = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
@@ -124,27 +199,20 @@ def build_triangle_mask(normalized_points: tuple[tuple[float, float], ...]) -> p
 
 
 def build_player_rect_mask() -> pygame.mask.Mask:
-    size = PLAYER_SIZE
-    surface = pygame.Surface((size, size), pygame.SRCALPHA)
+    surface = pygame.Surface((PLAYER_SIZE, PLAYER_SIZE), pygame.SRCALPHA)
     pygame.draw.rect(surface, (255, 255, 255), surface.get_rect())
     return pygame.mask.from_surface(surface)
 
 
-TRIANGLE_MASKS = {
-    tile_type: build_triangle_mask(tile_info['points'])
-    for tile_type, tile_info in TILE_TYPE_INFO.items()
-    if tile_info.get('shape') == 'tri'
-}
-PLAYER_COLLISION_MASK = build_player_rect_mask()
-
-CHAR_TO_TILE_TYPE = {
-    '#': 'wall',
-    '*': 'powerup1',
-    '+': 'powerup2',
-    '1': 'player1_spawn',
-    '2': 'player2_spawn',
-    '|': 'finish_line',
-}
+def build_masks() -> tuple[dict, pygame.mask.Mask]:
+    """Builds and returns (TRIANGLE_MASKS, PLAYER_COLLISION_MASK). Call after pygame.init()."""
+    triangle_masks = {
+        tile_type: build_triangle_mask(tile_info['points'])
+        for tile_type, tile_info in TILE_TYPE_INFO.items()
+        if tile_info.get('shape') == 'tri'
+    }
+    player_mask = build_player_rect_mask()
+    return triangle_masks, player_mask
 
 
 # =============================================================================
@@ -155,7 +223,9 @@ CHAR_TO_TILE_TYPE = {
 class Tile:
     def __init__(self, tile_type: str, grid_x: int, grid_y: int):
         self.tile_type: str = tile_type
-        self.world_rect: pygame.Rect = pygame.Rect(grid_x * TILE_SIZE, grid_y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+        self.world_rect: pygame.Rect = pygame.Rect(
+            grid_x * TILE_SIZE, grid_y * TILE_SIZE, TILE_SIZE, TILE_SIZE
+        )
 
 
 # converts a map file into a tile matrix
@@ -184,7 +254,6 @@ class Map:
         player2_spawn: tuple[float, float] | None = None
         finish_tiles: list[tuple[int, int]] = []
 
-        # assign each tile directly from the map characters
         for row_idx, line in enumerate(lines):
             row = []
             for col_idx in range(self.cols):
@@ -215,13 +284,14 @@ class Map:
             raise ValueError("Map must contain a '1' spawn marker.")
         if player2_spawn is None:
             raise ValueError("Map must contain a '2' spawn marker.")
-
         if len(finish_tiles) != 7:
-            raise ValueError(f"Map must contain exactly seven '|' finish markers, found {len(finish_tiles)}.")
+            raise ValueError(
+                f"Map must contain exactly seven '|' finish markers, found {len(finish_tiles)}."
+            )
 
         finish_cols = {col for _, col in finish_tiles}
         if len(finish_cols) != 1:
-            raise ValueError("Finish markers must form a single vertical line (all '|' in one column).")
+            raise ValueError("Finish markers must form a single vertical line.")
 
         finish_rows = sorted(row for row, _ in finish_tiles)
         if any(curr != prev + 1 for prev, curr in zip(finish_rows, finish_rows[1:])):
@@ -234,52 +304,46 @@ class Map:
         self.finish_line_y_min = finish_rows[0] * TILE_SIZE
         self.finish_line_y_max = (finish_rows[-1] + 1) * TILE_SIZE
 
-        # smooth diagonals with triangle walls
+        # smooth diagonals with triangle walls using marching squares
         square_walls = [[tile.tile_type == 'wall' for tile in row] for row in self.grid]
-
         for row_idx in range(self.rows - 1):
             for col_idx in range(self.cols - 1):
                 if square_walls[row_idx][col_idx] and square_walls[row_idx + 1][col_idx + 1]:
                     self.grid[row_idx][col_idx + 1].tile_type = 'tri_bottom_left'
                     self.grid[row_idx + 1][col_idx].tile_type = 'tri_top_right'
-
                 if square_walls[row_idx][col_idx + 1] and square_walls[row_idx + 1][col_idx]:
                     self.grid[row_idx][col_idx].tile_type = 'tri_bottom_right'
                     self.grid[row_idx + 1][col_idx + 1].tile_type = 'tri_top_left'
 
-    # returns all tiles intersecting a world-space rectangle
     def get_tiles_in_rect(self, world_rect: pygame.Rect) -> list:
+        """Returns all tiles intersecting a world-space rectangle."""
         col_start = max(0, world_rect.left // TILE_SIZE)
         col_end = min(self.cols, world_rect.right // TILE_SIZE + 1)
         row_start = max(0, world_rect.top // TILE_SIZE)
         row_end = min(self.rows, world_rect.bottom // TILE_SIZE + 1)
-        return [self.grid[row][col] for row in range(row_start, row_end) for col in range(col_start, col_end)]
+        return [
+            self.grid[row][col]
+            for row in range(row_start, row_end)
+            for col in range(col_start, col_end)
+        ]
 
-    # renders the static map into a world-space surface once for seam-free rotated blitting.
     def build_surface(self) -> pygame.Surface:
+        """Renders the static map into a world-space surface once for seam-free rotated blitting."""
         map_surface = pygame.Surface((self.pixel_width, self.pixel_height), pygame.SRCALPHA)
-
         for row in self.grid:
             for tile in row:
                 info = TILE_TYPE_INFO.get(tile.tile_type, TILE_TYPE_INFO['open'])
                 rect = tile.world_rect
-
                 if info['shape'] == 'rect':
                     pygame.draw.rect(map_surface, info['color'], rect)
                     continue
-
-                # Draw base open tile first, then triangle overlay for corner semantics.
                 pygame.draw.rect(map_surface, TILE_TYPE_INFO['open']['color'], rect)
                 max_idx = TILE_SIZE - 1
                 tri_points = [
-                    (
-                        int(rect.x + px * max_idx),
-                        int(rect.y + py * max_idx),
-                    )
+                    (int(rect.x + px * max_idx), int(rect.y + py * max_idx))
                     for px, py in info['points']
                 ]
                 pygame.draw.polygon(map_surface, info['color'], tri_points)
-
         return map_surface
 
 
@@ -292,17 +356,17 @@ class Camera:
         self.offset_y: float = 0.0
         self.heading: float = 0.0
 
-    # centers the camera on a world-space point.
     def center_on(self, world_x: float, world_y: float):
+        """Centers the camera on a world-space point."""
         self.offset_x = world_x - self.viewport_w / 2
         self.offset_y = world_y - self.viewport_h / 2
 
-    # sets camera heading to keep vehicle front as up-screen in rendering.
     def set_heading(self, heading: float):
+        """Sets the camera heading to keep the vehicle front as up-screen."""
         self.heading = heading
 
 
-# handles vehicle position, movement, and rendering surface
+# handles vehicle position, physics, and rendering
 class Vehicle:
     def __init__(
         self,
@@ -337,19 +401,23 @@ class Vehicle:
         self.steer_right_key: int = steer_right_key
         self.color: tuple[int, int, int] = color
 
-    # returns the world-space rectangle of the player
     def get_bounding_rect(self) -> pygame.Rect:
-        return pygame.Rect(int(self.world_x) - PLAYER_SIZE // 2, int(self.world_y) - PLAYER_SIZE // 2, PLAYER_SIZE, PLAYER_SIZE)
+        """Returns the world-space bounding rectangle of the vehicle."""
+        return pygame.Rect(
+            int(self.world_x) - PLAYER_SIZE // 2,
+            int(self.world_y) - PLAYER_SIZE // 2,
+            PLAYER_SIZE,
+            PLAYER_SIZE,
+        )
 
-    # updates input direction from arrow keys
     def handle_input(self):
+        """Updates throttle and steer inputs from currently pressed keys."""
         keys = pygame.key.get_pressed()
-
         self.throttle_input = int(keys[self.throttle_forward_key]) - int(keys[self.throttle_back_key])
         self.steer_input = int(keys[self.steer_right_key]) - int(keys[self.steer_left_key])
 
-    # steps velocity and position using input acceleration and drag
     def update_physics(self, dt: float):
+        """Steps velocity and position using input acceleration and drag."""
         self.prev_world_x = self.world_x
         self.prev_world_y = self.world_y
 
@@ -364,15 +432,14 @@ class Vehicle:
 
         self.vel_x += accel_x * dt
         self.vel_y += accel_y * dt
-
         self.vel_x = clamp(self.vel_x, -PLAYER_MAX_SPEED_SAFETY, PLAYER_MAX_SPEED_SAFETY)
         self.vel_y = clamp(self.vel_y, -PLAYER_MAX_SPEED_SAFETY, PLAYER_MAX_SPEED_SAFETY)
 
         self.world_x += self.vel_x * dt
         self.world_y += self.vel_y * dt
 
-    # resolves wall collisions using a rectangle-player collider and MTV response.
-    def resolve_collisions(self, game_map: Map):
+    def resolve_collisions(self, game_map: Map, triangle_masks: dict, player_mask: pygame.mask.Mask):
+        """Resolves wall collisions using a rectangle-player collider and MTV response."""
         for _ in range(MAX_COLLISION_PASSES):
             corrected = False
             broad_rect = self.get_bounding_rect()
@@ -382,7 +449,12 @@ class Vehicle:
                     continue
 
                 player_rect = self.get_bounding_rect()
-                contact = self.contact_with_tile(tile, tile_info, player_rect)
+
+                if tile_info['shape'] == 'tri':
+                    if not triangle_mask_overlap(player_rect, tile.world_rect, tile.tile_type, triangle_masks, player_mask):
+                        continue
+
+                contact = rect_tile_contact_mtv(player_rect, tile.world_rect)
                 if contact is None:
                     continue
 
@@ -409,14 +481,8 @@ class Vehicle:
         if abs(self.vel_y) < 1e-3:
             self.vel_y = 0.0
 
-    def contact_with_tile(self, tile: Tile, tile_info: dict, player_rect: pygame.Rect) -> tuple[float, float, float] | None:
-        if tile_info['shape'] == 'tri':
-            if not triangle_mask_overlap(player_rect, tile.world_rect, tile.tile_type):
-                return None
-        return rect_tile_contact_mtv(player_rect, tile.world_rect)
-
-    # draws the player as a filled square centered on the given screen coordinates.
     def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
+        """Draws the vehicle as a filled square centered on the given screen coordinates."""
         screen_rect = pygame.Rect(
             screen_x - PLAYER_SIZE // 2,
             screen_y - PLAYER_SIZE // 2,
@@ -428,7 +494,7 @@ class Vehicle:
 
 
 # =============================================================================
-# Helpers
+# Physics helpers
 # =============================================================================
 
 def clamp(value: float, low: float, high: float) -> float:
@@ -439,9 +505,9 @@ def rect_tile_contact_mtv(player_rect: pygame.Rect, rect: pygame.Rect) -> tuple[
     if not player_rect.colliderect(rect):
         return None
 
-    overlap_left = player_rect.right - rect.left
-    overlap_right = rect.right - player_rect.left
-    overlap_top = player_rect.bottom - rect.top
+    overlap_left   = player_rect.right  - rect.left
+    overlap_right  = rect.right  - player_rect.left
+    overlap_top    = player_rect.bottom - rect.top
     overlap_bottom = rect.bottom - player_rect.top
 
     overlap_x = min(overlap_left, overlap_right)
@@ -460,16 +526,22 @@ def rect_tile_contact_mtv(player_rect: pygame.Rect, rect: pygame.Rect) -> tuple[
     return (0.0, 1.0, overlap_y)
 
 
-def triangle_mask_overlap(player_rect: pygame.Rect, tile_rect: pygame.Rect, tile_type: str) -> bool:
-    tri_mask = TRIANGLE_MASKS.get(tile_type)
+def triangle_mask_overlap(
+    player_rect: pygame.Rect,
+    tile_rect: pygame.Rect,
+    tile_type: str,
+    triangle_masks: dict,
+    player_mask: pygame.mask.Mask,
+) -> bool:
+    tri_mask = triangle_masks.get(tile_type)
     if tri_mask is None:
         return False
-
     offset = (player_rect.left - tile_rect.left, player_rect.top - tile_rect.top)
-    return tri_mask.overlap(PLAYER_COLLISION_MASK, offset) is not None
+    return tri_mask.overlap(player_mask, offset) is not None
 
 
 def update_lap_progress(player: Vehicle, game_map: Map) -> bool:
+    """Advances lap state for player. Returns True when the race is completed."""
     if player.race_finished:
         return False
 
@@ -482,24 +554,19 @@ def update_lap_progress(player: Vehicle, game_map: Map) -> bool:
 
     y_at_cross = player.world_y
     if abs(dx) > 1e-6:
-        t = (finish_x - player.prev_world_x) / dx
-        t = clamp(t, 0.0, 1.0)
+        t = clamp((finish_x - player.prev_world_x) / dx, 0.0, 1.0)
         y_at_cross = player.prev_world_y + t * (player.world_y - player.prev_world_y)
 
     y_in_finish_span = game_map.finish_line_y_min <= y_at_cross <= game_map.finish_line_y_max
 
     if y_in_finish_span and crossed_finish_line:
         if dx > 0.0:
-            # Players spawn just left of the line; ignore the first forward crossing.
             if player.ignore_first_forward_cross:
                 player.ignore_first_forward_cross = False
                 return False
-
-            # Crossing forward while already on final lap completes the race.
             if player.curr_lap >= TOTAL_LAPS:
                 player.race_finished = True
                 return True
-
             player.curr_lap += 1
             if player.curr_lap > player.max_lap:
                 player.max_lap = player.curr_lap
@@ -510,118 +577,9 @@ def update_lap_progress(player: Vehicle, game_map: Map) -> bool:
     return False
 
 
-def render_lap_counter(
-    screen: pygame.Surface,
-    viewport_rect: pygame.Rect,
-    max_lap: int,
-    total_laps: int,
-    font: pygame.font.Font,
-):
-    width = 92
-    height = 44
-    margin = 10
-    box_rect = pygame.Rect(
-        viewport_rect.right - margin - width,
-        viewport_rect.top + margin,
-        width,
-        height,
-    )
-
-    pygame.draw.rect(screen, (255, 255, 255), box_rect)
-    pygame.draw.rect(screen, (0, 0, 0), box_rect, 2)
-
-    shown_lap = min(max_lap, total_laps)
-    text_surface = font.render(f"{shown_lap}/{total_laps}", True, (0, 0, 0))
-    text_rect = text_surface.get_rect(center=box_rect.center)
-    screen.blit(text_surface, text_rect)
-
-
-def render_time_hud(
-    screen: pygame.Surface,
-    viewport_rect: pygame.Rect,
-    total_timer: float,
-    lap_timer: float,
-    font: pygame.font.Font,
-):
-    total_minutes = int(total_timer // 60.0)
-    total_seconds = total_timer % 60.0
-    total_text = f"T: {total_minutes}:{total_seconds:05.2f}"
-
-    minutes = int(lap_timer // 60.0)
-    seconds = lap_timer % 60.0
-    lap_text = f"L: {minutes}:{seconds:05.2f}"
-
-    total_surface = font.render(total_text, True, (0, 140, 0))
-    lap_surface = font.render(lap_text, True, (0, 140, 0))
-
-    content_width = max(total_surface.get_width(), lap_surface.get_width())
-    content_height = total_surface.get_height() + lap_surface.get_height() + 2
-    padding_x = 10
-    padding_y = 6
-    box_rect = pygame.Rect(
-        viewport_rect.centerx - (content_width + 2 * padding_x) // 2,
-        viewport_rect.top + 6,
-        content_width + 2 * padding_x,
-        content_height + 2 * padding_y,
-    )
-
-    pygame.draw.rect(screen, (255, 255, 255), box_rect)
-    pygame.draw.rect(screen, (0, 0, 0), box_rect, 2)
-
-    total_rect = total_surface.get_rect(
-        centerx=box_rect.centerx,
-        top=box_rect.top + padding_y,
-    )
-    screen.blit(total_surface, total_rect)
-
-    lap_rect = lap_surface.get_rect(
-        centerx=box_rect.centerx,
-        top=total_rect.bottom + 2,
-    )
-    screen.blit(lap_surface, lap_rect)
-
-
-def format_place(place: int) -> str:
-    if 10 <= (place % 100) <= 20:
-        suffix = 'th'
-    else:
-        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(place % 10, 'th')
-    return f"{place}{suffix}"
-
-
-def render_finish_place(
-    screen: pygame.Surface,
-    viewport_rect: pygame.Rect,
-    finish_place: int | None,
-    font: pygame.font.Font,
-):
-    if finish_place is None:
-        return
-
-    text_surface = font.render(format_place(finish_place), True, (0, 0, 0))
-    padding_x = 14
-    padding_y = 10
-    box_rect = pygame.Rect(
-        viewport_rect.centerx - (text_surface.get_width() + 2 * padding_x) // 2,
-        viewport_rect.centery - 40,
-        text_surface.get_width() + 2 * padding_x,
-        text_surface.get_height() + 2 * padding_y,
-    )
-    pygame.draw.rect(screen, (255, 255, 255), box_rect)
-    pygame.draw.rect(screen, (0, 0, 0), box_rect, 2)
-
-    text_rect = text_surface.get_rect(center=box_rect.center)
-    screen.blit(text_surface, text_rect)
-
-
-def scan_map_files() -> list[str]:
-    """Returns list of .txt filenames found in the current directory."""
-    entries = []
-    for name in os.listdir('.'):
-        if name.lower().endswith('.txt') and os.path.isfile(name):
-            entries.append(os.path.splitext(name)[0])
-    return sorted(entries)
-
+# =============================================================================
+# Render helpers
+# =============================================================================
 
 def make_button_rect(center_x: int, center_y: int, width: int = 220, height: int = 84) -> pygame.Rect:
     """Returns a Rect centered at the given coordinates."""
@@ -651,19 +609,35 @@ def draw_button(
     screen.blit(text_surface, text_rect)
 
 
+def render_status_screen(screen: pygame.Surface, title_font: pygame.font.Font, button_font: pygame.font.Font, message: str):
+    """Renders a centered status message (connecting, waiting, etc.)."""
+    screen.fill((25, 25, 25))
+    title_surface = title_font.render('PiKart', True, (255, 255, 255))
+    title_rect = title_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 5))
+    screen.blit(title_surface, title_rect)
+    msg_surface = button_font.render(message, True, (180, 180, 180))
+    msg_rect = msg_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2))
+    screen.blit(msg_surface, msg_rect)
+
+
 def render_menu(
     screen: pygame.Surface,
     play_button_rect: pygame.Rect,
     quit_button_rect: pygame.Rect,
     title_font: pygame.font.Font,
     button_font: pygame.font.Font,
+    error_msg: str | None,
 ):
-    """Renders the main menu with Play and Quit buttons."""
+    """Renders the main menu with Play and Quit buttons, and an optional error message."""
     screen.fill((25, 25, 25))
-
     title_surface = title_font.render('PiKart', True, (255, 255, 255))
     title_rect = title_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 5))
     screen.blit(title_surface, title_rect)
+
+    if error_msg is not None:
+        err_surface = button_font.render(error_msg, True, COLOR_ERROR)
+        err_rect = err_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 120))
+        screen.blit(err_surface, err_rect)
 
     mouse_pos = pygame.mouse.get_pos()
     draw_button(screen, play_button_rect, 'Play', button_font, play_button_rect.collidepoint(mouse_pos))
@@ -680,7 +654,6 @@ def render_map_select(
 ):
     """Renders the map selection screen with one clickable row per discovered map."""
     screen.fill((25, 25, 25))
-
     title_surface = title_font.render('Select Map', True, (255, 255, 255))
     title_rect = title_surface.get_rect(center=(VIEWPORT_WIDTH // 2, 80))
     screen.blit(title_surface, title_rect)
@@ -694,7 +667,7 @@ def render_map_select(
         )
 
     if not map_names:
-        no_maps_surface = button_font.render('No .txt maps found in current directory.', True, (200, 80, 80))
+        no_maps_surface = button_font.render('No .txt maps found in current directory.', True, COLOR_ERROR)
         no_maps_rect = no_maps_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2))
         screen.blit(no_maps_surface, no_maps_rect)
 
@@ -703,34 +676,29 @@ def render_map_select(
 
 def render_post_race(
     screen: pygame.Surface,
-    replay_button_rect: pygame.Rect,
+    play_again_rect: pygame.Rect,
     menu_button_rect: pygame.Rect,
     title_font: pygame.font.Font,
     button_font: pygame.font.Font,
 ):
-    """Renders the post-race overlay with Replay and Menu buttons."""
+    """Renders the post-race overlay with Play Again and Exit to Menu buttons."""
     overlay = pygame.Surface((VIEWPORT_WIDTH, VIEWPORT_HEIGHT), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 160))
     screen.blit(overlay, (0, 0))
-
     title_surface = title_font.render('Race Over!', True, (255, 255, 255))
     title_rect = title_surface.get_rect(center=(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 80))
     screen.blit(title_surface, title_rect)
-
     mouse_pos = pygame.mouse.get_pos()
     draw_button(
-        screen, replay_button_rect, 'Replay', button_font, replay_button_rect.collidepoint(mouse_pos),
+        screen, play_again_rect, 'Play Again', button_font, play_again_rect.collidepoint(mouse_pos),
         bg_normal=(60, 140, 60), bg_hover=(90, 185, 90),
         text_color=(255, 255, 255), border_color=(30, 90, 30),
     )
-    draw_button(screen, menu_button_rect, 'Menu', button_font, menu_button_rect.collidepoint(mouse_pos))
+    draw_button(screen, menu_button_rect, 'Exit to Menu', button_font, menu_button_rect.collidepoint(mouse_pos))
 
 
-def render_center_overlay_message(
-    screen: pygame.Surface,
-    message: str,
-    font: pygame.font.Font,
-):
+def render_center_overlay_message(screen: pygame.Surface, message: str, font: pygame.font.Font):
+    """Renders a centered text box overlay."""
     text_surface = font.render(message, True, (0, 0, 0))
     padding_x = 24
     padding_y = 14
@@ -740,130 +708,170 @@ def render_center_overlay_message(
         text_surface.get_width() + 2 * padding_x,
         text_surface.get_height() + 2 * padding_y,
     )
-
     pygame.draw.rect(screen, (255, 255, 255), box_rect)
     pygame.draw.rect(screen, (0, 0, 0), box_rect, 3)
-
     text_rect = text_surface.get_rect(center=box_rect.center)
     screen.blit(text_surface, text_rect)
 
 
-def create_race_objects(
-    game_map: Map,
-    left_viewport: pygame.Rect,
-    right_viewport: pygame.Rect,
-) -> tuple[Vehicle, Vehicle, Camera, Camera]:
-    player1 = Vehicle(
-        *(game_map.player1_spawn),
-        throttle_forward_key=pygame.K_UP,
-        throttle_back_key=pygame.K_DOWN,
-        steer_left_key=pygame.K_LEFT,
-        steer_right_key=pygame.K_RIGHT,
-        color=COLOR_PLAYER,
-    )
-    player2 = Vehicle(
-        *(game_map.player2_spawn),
-        throttle_forward_key=pygame.K_w,
-        throttle_back_key=pygame.K_s,
-        steer_left_key=pygame.K_a,
-        steer_right_key=pygame.K_d,
-        color=COLOR_PLAYER2,
-    )
-
-    camera1 = Camera(left_viewport.width, left_viewport.height)
-    camera2 = Camera(right_viewport.width, right_viewport.height)
-    camera1.center_on(player1.world_x, player1.world_y)
-    camera1.set_heading(player1.heading)
-    camera2.center_on(player2.world_x, player2.world_y)
-    camera2.set_heading(player2.heading)
-
-    return player1, player2, camera1, camera2
-
-
-# renders only map tiles that are inside the camera viewport
 def render_map(
     screen: pygame.Surface,
     map_surface: pygame.Surface,
     camera: Camera,
     viewport_rect: pygame.Rect | None = None,
-    overlay_players: list[Vehicle] | None = None,
+    overlay_vehicles: list | None = None,
 ):
+    """Renders the map patch visible through the camera, with optional vehicle overlays."""
     if viewport_rect is None:
         viewport_rect = pygame.Rect(0, 0, camera.viewport_w, camera.viewport_h)
 
-    # Build a camera-centered square patch, then rotate it around the screen center.
-    diag = int(math.ceil(math.sqrt(camera.viewport_w * camera.viewport_w + camera.viewport_h * camera.viewport_h))) + 2 * TILE_SIZE
+    diag = (
+        int(math.ceil(math.sqrt(camera.viewport_w ** 2 + camera.viewport_h ** 2)))
+        + 2 * TILE_SIZE
+    )
     patch_surface = pygame.Surface((diag, diag), pygame.SRCALPHA)
 
     camera_center_world_x = camera.offset_x + camera.viewport_w / 2.0
     camera_center_world_y = camera.offset_y + camera.viewport_h / 2.0
     patch_left_world = camera_center_world_x - diag / 2.0
-    patch_top_world = camera_center_world_y - diag / 2.0
+    patch_top_world  = camera_center_world_y - diag / 2.0
 
     patch_surface.blit(
         map_surface,
         (-int(round(patch_left_world)), -int(round(patch_top_world))),
     )
 
-    if overlay_players is not None:
-        for overlay_player in overlay_players:
-            local_x = int(round(overlay_player.world_x - patch_left_world))
-            local_y = int(round(overlay_player.world_y - patch_top_world))
-            overlay_player.draw(patch_surface, local_x, local_y)
+    if overlay_vehicles is not None:
+        for v in overlay_vehicles:
+            local_x = int(round(v.world_x - patch_left_world))
+            local_y = int(round(v.world_y - patch_top_world))
+            v.draw(patch_surface, local_x, local_y)
 
     angle_deg = math.degrees(camera.heading) + 90.0
-    rotated_map = pygame.transform.rotate(patch_surface, angle_deg)
-    rotated_rect = rotated_map.get_rect(center=viewport_rect.center)
-    screen.blit(rotated_map, rotated_rect)
+    rotated = pygame.transform.rotate(patch_surface, angle_deg)
+    rotated_rect = rotated.get_rect(center=viewport_rect.center)
+    screen.blit(rotated, rotated_rect)
 
 
-# =============================================================================
-# Game logic
-# =============================================================================
+def render_hud(
+    screen: pygame.Surface,
+    viewport_rect: pygame.Rect,
+    max_lap: int,
+    total_laps: int,
+    total_timer: float,
+    lap_timer: float,
+    finish_place: int | None,
+    hud_font: pygame.font.Font,
+    place_font: pygame.font.Font,
+):
+    """Renders lap counter, timers, and finish place for one player's viewport."""
+    render_lap_counter(screen, viewport_rect, max_lap, total_laps, hud_font)
+    render_time_hud(screen, viewport_rect, total_timer, lap_timer, hud_font)
+    render_finish_place(screen, viewport_rect, finish_place, place_font)
 
-pygame.init()
-screen = pygame.display.set_mode((VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
-pygame.display.set_caption("PiKart")
-clock = pygame.time.Clock()
-hud_font = pygame.font.SysFont(None, 30)
-place_font = pygame.font.SysFont(None, 54)
-countdown_font = pygame.font.SysFont(None, 110)
-menu_title_font = pygame.font.SysFont(None, 92)
-menu_button_font = pygame.font.SysFont(None, 48)
 
-half_viewport_w = VIEWPORT_WIDTH // 2
-left_viewport = pygame.Rect(0, 0, half_viewport_w, VIEWPORT_HEIGHT)
-right_viewport = pygame.Rect(half_viewport_w, 0, VIEWPORT_WIDTH - half_viewport_w, VIEWPORT_HEIGHT)
+def render_lap_counter(
+    screen: pygame.Surface,
+    viewport_rect: pygame.Rect,
+    max_lap: int,
+    total_laps: int,
+    font: pygame.font.Font,
+):
+    width = 92
+    height = 44
+    margin = 10
+    box_rect = pygame.Rect(
+        viewport_rect.right - margin - width,
+        viewport_rect.top + margin,
+        width,
+        height,
+    )
+    pygame.draw.rect(screen, (255, 255, 255), box_rect)
+    pygame.draw.rect(screen, (0, 0, 0), box_rect, 2)
+    shown_lap = min(max_lap, total_laps)
+    text_surface = font.render(f"{shown_lap}/{total_laps}", True, (0, 0, 0))
+    text_rect = text_surface.get_rect(center=box_rect.center)
+    screen.blit(text_surface, text_rect)
 
-# main menu buttons
-play_button_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 54)
-quit_button_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 + 54)
 
-# map select buttons (rebuilt each time STATE_MAP_SELECT is entered)
-map_names: list[str] = []
-map_row_rects: list[pygame.Rect] = []
-map_select_back_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT - 70, width=160, height=60)
+def render_time_hud(
+    screen: pygame.Surface,
+    viewport_rect: pygame.Rect,
+    total_timer: float,
+    lap_timer: float,
+    font: pygame.font.Font,
+):
+    total_minutes = int(total_timer // 60.0)
+    total_seconds = total_timer % 60.0
+    total_text = f"T: {total_minutes}:{total_seconds:05.2f}"
+    minutes = int(lap_timer // 60.0)
+    seconds = lap_timer % 60.0
+    lap_text = f"L: {minutes}:{seconds:05.2f}"
 
-# post-race buttons
-replay_button_rect = make_button_rect(VIEWPORT_WIDTH // 2 - 110, VIEWPORT_HEIGHT // 2 + 20, width=180, height=64)
-post_race_menu_rect = make_button_rect(VIEWPORT_WIDTH // 2 + 110, VIEWPORT_HEIGHT // 2 + 20, width=180, height=64)
+    total_surface = font.render(total_text, True, (0, 140, 0))
+    lap_surface   = font.render(lap_text,   True, (0, 140, 0))
 
-# race state
-game_map: Map | None = None
-map_surface: pygame.Surface | None = None
-selected_map_file: str | None = None
-player1: Vehicle | None = None
-player2: Vehicle | None = None
-camera1: Camera | None = None
-camera2: Camera | None = None
-current_state = STATE_MENU
-countdown_remaining = 0.0
-go_display_remaining = 0.0
-next_finish_place = 1
+    content_width  = max(total_surface.get_width(), lap_surface.get_width())
+    content_height = total_surface.get_height() + lap_surface.get_height() + 2
+    padding_x = 10
+    padding_y = 6
+    box_rect = pygame.Rect(
+        viewport_rect.centerx - (content_width + 2 * padding_x) // 2,
+        viewport_rect.top + 6,
+        content_width + 2 * padding_x,
+        content_height + 2 * padding_y,
+    )
+    pygame.draw.rect(screen, (255, 255, 255), box_rect)
+    pygame.draw.rect(screen, (0, 0, 0), box_rect, 2)
+
+    total_rect = total_surface.get_rect(centerx=box_rect.centerx, top=box_rect.top + padding_y)
+    screen.blit(total_surface, total_rect)
+    lap_rect = lap_surface.get_rect(centerx=box_rect.centerx, top=total_rect.bottom + 2)
+    screen.blit(lap_surface, lap_rect)
+
+
+def format_place(place: int) -> str:
+    if 10 <= (place % 100) <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(place % 10, 'th')
+    return f"{place}{suffix}"
+
+
+def render_finish_place(
+    screen: pygame.Surface,
+    viewport_rect: pygame.Rect,
+    finish_place: int | None,
+    font: pygame.font.Font,
+):
+    if finish_place is None:
+        return
+    text_surface = font.render(format_place(finish_place), True, (0, 0, 0))
+    padding_x = 14
+    padding_y = 10
+    box_rect = pygame.Rect(
+        viewport_rect.centerx - (text_surface.get_width() + 2 * padding_x) // 2,
+        viewport_rect.centery - 40,
+        text_surface.get_width() + 2 * padding_x,
+        text_surface.get_height() + 2 * padding_y,
+    )
+    pygame.draw.rect(screen, (255, 255, 255), box_rect)
+    pygame.draw.rect(screen, (0, 0, 0), box_rect, 2)
+    text_rect = text_surface.get_rect(center=box_rect.center)
+    screen.blit(text_surface, text_rect)
+
+
+def scan_map_files() -> list[str]:
+    """Returns sorted list of map stems (filename without .txt) in the current directory."""
+    entries = []
+    for name in os.listdir('.'):
+        if name.lower().endswith('.txt') and os.path.isfile(name):
+            entries.append(os.path.splitext(name)[0])
+    return sorted(entries)
 
 
 def build_map_row_rects(count: int) -> list[pygame.Rect]:
-    """Returns vertically stacked button rects for the map list."""
+    """Returns vertically stacked button rects for the map selection list."""
     row_height = 68
     start_y = 160
     cx = VIEWPORT_WIDTH // 2
@@ -871,167 +879,3 @@ def build_map_row_rects(count: int) -> list[pygame.Rect]:
         make_button_rect(cx, start_y + i * row_height, width=360, height=54)
         for i in range(count)
     ]
-
-
-def start_race(map_stem: str):
-    """Loads map_stem + '.txt', builds the map surface, and initialises race objects."""
-    global game_map, map_surface, player1, player2, camera1, camera2
-    global next_finish_place, countdown_remaining, go_display_remaining
-    game_map = Map(map_stem + '.txt')
-    map_surface = game_map.build_surface()
-    player1, player2, camera1, camera2 = create_race_objects(game_map, left_viewport, right_viewport)
-    next_finish_place = 1
-    countdown_remaining = COUNTDOWN_DURATION
-    go_display_remaining = 0.0
-
-
-running = True
-while running:
-    dt = min(clock.tick(FPS) / 1000.0, MAX_PHYSICS_DT)
-
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT):
-                current_state = STATE_MENU
-            else:
-                running = False
-
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            pos = event.pos
-
-            if current_state == STATE_MENU:
-                if play_button_rect.collidepoint(pos):
-                    map_names = scan_map_files()
-                    map_row_rects = build_map_row_rects(len(map_names))
-                    current_state = STATE_MAP_SELECT
-                elif quit_button_rect.collidepoint(pos):
-                    running = False
-
-            elif current_state == STATE_MAP_SELECT:
-                if map_select_back_rect.collidepoint(pos):
-                    current_state = STATE_MENU
-                else:
-                    for i, rect in enumerate(map_row_rects):
-                        if rect.collidepoint(pos):
-                            selected_map_file = map_names[i]
-                            start_race(selected_map_file)
-                            current_state = STATE_GAME
-                            break
-
-            elif current_state == STATE_POST_RACE:
-                if replay_button_rect.collidepoint(pos) and selected_map_file is not None:
-                    start_race(selected_map_file)
-                    current_state = STATE_GAME
-                elif post_race_menu_rect.collidepoint(pos):
-                    current_state = STATE_MENU
-
-    if current_state == STATE_MENU:
-        render_menu(screen, play_button_rect, quit_button_rect, menu_title_font, menu_button_font)
-        pygame.display.flip()
-        continue
-
-    if current_state == STATE_MAP_SELECT:
-        render_map_select(screen, map_names, map_row_rects, menu_title_font, menu_button_font, map_select_back_rect)
-        pygame.display.flip()
-        continue
-
-    if current_state == STATE_POST_RACE:
-        screen.fill(COLOR_BACKGROUND)
-
-        screen.set_clip(left_viewport)
-        render_map(screen, map_surface, camera1, left_viewport, overlay_players=[player2])
-        player1.draw(screen, left_viewport.centerx, left_viewport.centery)
-        render_lap_counter(screen, left_viewport, player1.max_lap, TOTAL_LAPS, hud_font)
-        render_time_hud(screen, left_viewport, player1.total_timer, player1.lap_timer, hud_font)
-        render_finish_place(screen, left_viewport, player1.finish_place, place_font)
-
-        screen.set_clip(right_viewport)
-        render_map(screen, map_surface, camera2, right_viewport, overlay_players=[player1])
-        player2.draw(screen, right_viewport.centerx, right_viewport.centery)
-        render_lap_counter(screen, right_viewport, player2.max_lap, TOTAL_LAPS, hud_font)
-        render_time_hud(screen, right_viewport, player2.total_timer, player2.lap_timer, hud_font)
-        render_finish_place(screen, right_viewport, player2.finish_place, place_font)
-
-        screen.set_clip(None)
-        pygame.draw.line(screen, (0, 0, 0), (half_viewport_w, 0), (half_viewport_w, VIEWPORT_HEIGHT), 2)
-        render_post_race(screen, replay_button_rect, post_race_menu_rect, menu_title_font, menu_button_font)
-        pygame.display.flip()
-        continue
-
-    if countdown_remaining > 0.0:
-        countdown_remaining = max(0.0, countdown_remaining - dt)
-        if countdown_remaining == 0.0:
-            go_display_remaining = GO_DISPLAY_DURATION
-
-    if go_display_remaining > 0.0:
-        go_display_remaining = max(0.0, go_display_remaining - dt)
-
-    input_enabled = countdown_remaining <= 0.0
-
-    if input_enabled:
-        player1.handle_input()
-        player2.handle_input()
-
-        player1.update_physics(dt)
-        player2.update_physics(dt)
-
-        player1_just_finished = update_lap_progress(player1, game_map)
-        player2_just_finished = update_lap_progress(player2, game_map)
-
-        if player1_just_finished:
-            player1.finish_place = next_finish_place
-            next_finish_place += 1
-        if player2_just_finished:
-            player2.finish_place = next_finish_place
-            next_finish_place += 1
-
-        if not player1.race_finished:
-            player1.total_timer += dt
-            player1.lap_timer += dt
-        if not player2.race_finished:
-            player2.total_timer += dt
-            player2.lap_timer += dt
-
-        player1.resolve_collisions(game_map)
-        player2.resolve_collisions(game_map)
-
-        if player1.race_finished and player2.race_finished:
-            current_state = STATE_POST_RACE
-
-    camera1.center_on(player1.world_x, player1.world_y)
-    camera1.set_heading(player1.heading)
-    camera2.center_on(player2.world_x, player2.world_y)
-    camera2.set_heading(player2.heading)
-
-    screen.fill(COLOR_BACKGROUND)
-
-    screen.set_clip(left_viewport)
-    render_map(screen, map_surface, camera1, left_viewport, overlay_players=[player2])
-    player1.draw(screen, left_viewport.centerx, left_viewport.centery)
-    render_lap_counter(screen, left_viewport, player1.max_lap, TOTAL_LAPS, hud_font)
-    render_time_hud(screen, left_viewport, player1.total_timer, player1.lap_timer, hud_font)
-    render_finish_place(screen, left_viewport, player1.finish_place, place_font)
-
-    screen.set_clip(right_viewport)
-    render_map(screen, map_surface, camera2, right_viewport, overlay_players=[player1])
-    player2.draw(screen, right_viewport.centerx, right_viewport.centery)
-    render_lap_counter(screen, right_viewport, player2.max_lap, TOTAL_LAPS, hud_font)
-    render_time_hud(screen, right_viewport, player2.total_timer, player2.lap_timer, hud_font)
-    render_finish_place(screen, right_viewport, player2.finish_place, place_font)
-
-    screen.set_clip(None)
-    pygame.draw.line(screen, (0, 0, 0), (half_viewport_w, 0), (half_viewport_w, VIEWPORT_HEIGHT), 2)
-
-    if countdown_remaining > 0.0:
-        countdown_number = int(math.ceil(countdown_remaining))
-        render_center_overlay_message(screen, str(countdown_number), countdown_font)
-    elif go_display_remaining > 0.0:
-        render_center_overlay_message(screen, 'GO!', countdown_font)
-
-    pygame.display.flip()
-
-pygame.quit()
-sys.exit()
