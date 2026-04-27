@@ -691,17 +691,18 @@ JS_SW2   = 17
 
 _JS_SPI_DELAY    = 0.00001   # 10 µs
 _JS_POLL_HZ      = 100
-_JS_DEADZONE     = 0.04
-_JS_MENU_TRIGGER = 0.30      # tilt fraction to fire a menu move
-_JS_MENU_NEUTRAL = 0.15      # must return within this to re-arm
+_JS_DEADZONE     = 8         # raw units, same as test script
+_JS_CENTRE       = 256       # centre of 0-512 raw range
+_JS_MENU_TRIGGER = 80        # raw units from centre to trigger a menu move
+_JS_MENU_NEUTRAL = 30        # raw units from centre to re-arm
 
-# module-level state
+# module-level state — stored as raw ADC values (0-512)
 _js_pi       = None
 _js_lock     = threading.Lock()
-_js_x        = 0.0
-_js_y        = 0.0
-_js_btn_prev: dict[int, bool] = {}   # sw_pin -> previous raw state
-_js_btn_edge: dict[int, bool] = {}   # sw_pin -> pending edge event
+_js_x_raw    = _JS_CENTRE
+_js_y_raw    = _JS_CENTRE
+_js_btn_prev: dict[int, bool] = {}
+_js_btn_edge: dict[int, bool] = {}
 _js_menu_x_armed = True
 _js_menu_y_armed = True
 _js_running  = False
@@ -727,29 +728,29 @@ def _js_read_mcp3008(channel: int) -> int:
     return result
 
 
-def _js_normalise(raw: int) -> float:
-    v = (raw / 1023.0 - 0.5) * 2.0
+# converts raw value to [-1.0, 1.0] with deadzone applied in raw units
+def _js_to_float(raw: int) -> float:
+    v = raw - _JS_CENTRE
     if abs(v) < _JS_DEADZONE:
         return 0.0
-    sign = 1.0 if v > 0 else -1.0
-    return sign * (abs(v) - _JS_DEADZONE) / (1.0 - _JS_DEADZONE)
+    return max(-1.0, min(1.0, v / _JS_CENTRE))
 
 
 def _js_poll_loop():
     import time as _t
     interval = 1.0 / _JS_POLL_HZ
     sw_pins = [JS_SW1, JS_SW2]
-    global _js_x, _js_y
+    global _js_x_raw, _js_y_raw
     while _js_running:
-        x =  _js_normalise(_js_read_mcp3008(0))
-        y = -_js_normalise(_js_read_mcp3008(1))   # invert: up = positive throttle
+        x = _js_read_mcp3008(0)
+        y = _js_read_mcp3008(1)
         with _js_lock:
-            _js_x = x
-            _js_y = y
+            _js_x_raw = x
+            _js_y_raw = y
             for pin in sw_pins:
-                raw = _js_pi.read(pin) == 0   # active low
-                _js_btn_edge[pin] = raw and not _js_btn_prev.get(pin, False)
-                _js_btn_prev[pin] = raw
+                pressed = _js_pi.read(pin) == 0   # active low
+                _js_btn_edge[pin] = pressed and not _js_btn_prev.get(pin, False)
+                _js_btn_prev[pin] = pressed
         _t.sleep(interval)
 
 
@@ -781,12 +782,12 @@ def joystick_stop():
 
 def joystick_throttle() -> float:
     with _js_lock:
-        return _js_y
+        return -_js_to_float(_js_y_raw)   # invert: up on stick = positive throttle
 
 
 def joystick_steer() -> float:
     with _js_lock:
-        return _js_x
+        return _js_to_float(_js_x_raw)
 
 
 # returns True once per button press (edge detect); sw_pin is JS_SW1 or JS_SW2
@@ -797,31 +798,31 @@ def joystick_btn_pressed(sw_pin: int) -> bool:
         return v
 
 
-# returns -1, 0, or +1 for a menu move on the Y axis; fires once per tilt, re-arms at neutral
+# returns -1, 0, or +1 for a menu move on Y; fires once per tilt past threshold, re-arms at neutral
 def joystick_menu_y() -> int:
     global _js_menu_y_armed
     with _js_lock:
-        y = _js_y
+        y = _js_y_raw
     if _js_menu_y_armed:
-        if y < -_JS_MENU_TRIGGER:
+        if y < _JS_CENTRE - _JS_MENU_TRIGGER:
             _js_menu_y_armed = False; return -1
-        if y > _JS_MENU_TRIGGER:
+        if y > _JS_CENTRE + _JS_MENU_TRIGGER:
             _js_menu_y_armed = False; return 1
-    elif abs(y) < _JS_MENU_NEUTRAL:
+    elif abs(y - _JS_CENTRE) < _JS_MENU_NEUTRAL:
         _js_menu_y_armed = True
     return 0
 
 
-# returns -1, 0, or +1 for a menu move on the X axis
+# returns -1, 0, or +1 for a menu move on X
 def joystick_menu_x() -> int:
     global _js_menu_x_armed
     with _js_lock:
-        x = _js_x
+        x = _js_x_raw
     if _js_menu_x_armed:
-        if x < -_JS_MENU_TRIGGER:
+        if x < _JS_CENTRE - _JS_MENU_TRIGGER:
             _js_menu_x_armed = False; return -1
-        if x > _JS_MENU_TRIGGER:
+        if x > _JS_CENTRE + _JS_MENU_TRIGGER:
             _js_menu_x_armed = False; return 1
-    elif abs(x) < _JS_MENU_NEUTRAL:
+    elif abs(x - _JS_CENTRE) < _JS_MENU_NEUTRAL:
         _js_menu_x_armed = True
     return 0
