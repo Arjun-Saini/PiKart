@@ -14,7 +14,7 @@ import pygame
 # Constants
 # =============================================================================
 
-HOST_IP   = '192.168.50.1'
+HOST_IP   = '127.0.0.1'
 HOST_PORT = 55000
 
 VIEWPORT_WIDTH  = 320
@@ -122,20 +122,6 @@ _POWERUP_LABEL = {
 
 DISCONNECTED = object()   # sentinel used to signal thread shutdown
 
-# Packet type bytes
-_PKT_JSON  = 0   # control packets (connected, map, replay) — sent rarely, variable length
-_PKT_STATE = 1   # host→client game state — binary, fixed structure
-_PKT_INPUT = 2   # client→host input — binary, 3 bytes payload
-
-# Powerup index encoding (None = 0xFF)
-_POWERUP_TO_IDX = {None: 0xFF, POWERUP_SIZE_GROW: 0, POWERUP_SIZE_SHRINK: 1,
-                   POWERUP_GREEN_SHELL: 2, POWERUP_RED_SHELL: 3}
-_IDX_TO_POWERUP = {v: k for k, v in _POWERUP_TO_IDX.items()}
-
-# Shell type encoding
-_SHELL_TO_IDX = {POWERUP_GREEN_SHELL: 0, POWERUP_RED_SHELL: 1}
-_IDX_TO_SHELL = {0: POWERUP_GREEN_SHELL, 1: POWERUP_RED_SHELL}
-
 
 def flush_queue(q: queue.Queue):
     while True:
@@ -143,12 +129,12 @@ def flush_queue(q: queue.Queue):
         except queue.Empty: break
 
 
-def _send_raw(sock: socket.socket, pkt_type: int, data: bytes):
-    # wire format: [1 byte type][4 bytes length][N bytes data]
-    sock.sendall(struct.pack('>BI', pkt_type, len(data)) + data)
+def send_msg(sock: socket.socket, payload: dict):
+    data = json.dumps(payload).encode()
+    sock.sendall(struct.pack('>I', len(data)) + data)
 
 
-def _recv_raw(sock: socket.socket) -> tuple[int, bytes]:
+def recv_msg(sock: socket.socket) -> dict:
     def recv_exactly(n):
         buf = b''
         while len(buf) < n:
@@ -157,102 +143,20 @@ def _recv_raw(sock: socket.socket) -> tuple[int, bytes]:
                 raise OSError('Connection closed.')
             buf += chunk
         return buf
-    pkt_type, length = struct.unpack('>BI', recv_exactly(5))
-    return pkt_type, recv_exactly(length)
-
-
-def send_json(sock: socket.socket, payload: dict):
-    _send_raw(sock, _PKT_JSON, json.dumps(payload).encode())
-
-
-def recv_packet(sock: socket.socket) -> dict:
-    # returns a dict regardless of packet type; binary packets decoded to equivalent dict
-    pkt_type, data = _recv_raw(sock)
-    if pkt_type == _PKT_JSON:
-        return json.loads(data)
-    if pkt_type == _PKT_INPUT:
-        throttle, steer, activate = struct.unpack('bbB', data)
-        return {'throttle': throttle, 'steer': steer, 'activate': bool(activate)}
-    if pkt_type == _PKT_STATE:
-        return _decode_state(data)
-    raise OSError(f'Unknown packet type: {pkt_type}')
-
-
-def _encode_vehicle(v) -> bytes:
-    # x(f) y(f) heading(f) lap(B) place(b) powerup(B) size(f) = 19 bytes
-    place   = v.finish_place if v.finish_place is not None else -1
-    powerup = _POWERUP_TO_IDX.get(v.stored_powerup, 0xFF)
-    return struct.pack('>fffBbBf', v.world_x, v.world_y, v.heading,
-                       v.max_lap, place, powerup, v.size_multiplier)
-
-
-def _decode_vehicle(data: bytes, offset: int) -> tuple[dict, int]:
-    x, y, heading, lap, place, powerup_idx, size = struct.unpack_from('>fffBbBf', data, offset)
-    return {
-        'x': x, 'y': y, 'heading': heading, 'lap': lap,
-        'place': place if place >= 0 else None,
-        'powerup': _IDX_TO_POWERUP.get(powerup_idx),
-        'size': size,
-    }, offset + struct.calcsize('>fffBbBf')
-
-
-def encode_state(game_state: str, countdown: float, go: bool,
-                 p1_v, p2_v, shells: list, spawners: list) -> bytes:
-    # header: state(B) countdown(f) go(B)
-    state_byte = 0 if game_state == STATE_GAME else 1
-    buf = struct.pack('>BfB', state_byte, countdown, int(go))
-    buf += _encode_vehicle(p1_v)
-    buf += _encode_vehicle(p2_v)
-    # shells: count(B) + per shell: type(B) x(f) y(f)
-    buf += struct.pack('B', len(shells))
-    for sh in shells:
-        buf += struct.pack('>Bff', _SHELL_TO_IDX.get(sh.shell_type, 0), sh.world_x, sh.world_y)
-    # spawners: count(B) + per spawner: x(f) y(f) occupied(B)
-    buf += struct.pack('B', len(spawners))
-    for sp in spawners:
-        buf += struct.pack('>ffB', sp.world_x, sp.world_y, int(sp.available_powerup is not None))
-    return buf
-
-
-def _decode_state(data: bytes) -> dict:
-    state_byte, countdown, go = struct.unpack_from('>BfB', data, 0)
-    offset = struct.calcsize('>BfB')
-    p1, offset = _decode_vehicle(data, offset)
-    p2, offset = _decode_vehicle(data, offset)
-    shell_count = struct.unpack_from('B', data, offset)[0]; offset += 1
-    shells = []
-    for _ in range(shell_count):
-        type_idx, sx, sy = struct.unpack_from('>Bff', data, offset); offset += struct.calcsize('>Bff')
-        shells.append({'type': _IDX_TO_SHELL.get(type_idx, POWERUP_GREEN_SHELL), 'x': sx, 'y': sy})
-    spawner_count = struct.unpack_from('B', data, offset)[0]; offset += 1
-    spawners = []
-    for _ in range(spawner_count):
-        sx, sy, occupied = struct.unpack_from('>ffB', data, offset); offset += struct.calcsize('>ffB')
-        spawners.append({'x': sx, 'y': sy, 'occupied': bool(occupied)})
-    return {
-        'state': STATE_GAME if state_byte == 0 else STATE_POST_RACE,
-        'countdown': countdown, 'go': bool(go),
-        'p1': p1, 'p2': p2, 'shells': shells, 'spawners': spawners,
-    }
-
-
-def encode_input(throttle: int, steer: int, activate: bool) -> bytes:
-    return struct.pack('bbB', throttle, steer, int(activate))
+    return json.loads(recv_exactly(struct.unpack('>I', recv_exactly(4))[0]))
 
 
 # drains send_q, sends each message; on exit or error puts DISCONNECTED into signal_q
-# items in send_q are (pkt_type, bytes) tuples
 def net_send_thread(sock: socket.socket, send_q: queue.Queue, signal_q: queue.Queue, log):
     log("send_thread started")
     try:
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         while True:
-            item = send_q.get()
-            if item is DISCONNECTED:
+            payload = send_q.get()
+            if payload is DISCONNECTED:
                 log("send_thread exiting")
                 break
-            pkt_type, data = item
-            _send_raw(sock, pkt_type, data)
+            send_msg(sock, payload)
     except OSError as e:
         log(f"send_thread OSError: {e}")
     finally:
@@ -267,7 +171,7 @@ def net_recv_thread(sock: socket.socket, recv_q: queue.Queue,
     log("recv_thread started")
     try:
         while True:
-            recv_q.put(recv_packet(sock))
+            recv_q.put(recv_msg(sock))
     except OSError as e:
         log(f"recv_thread OSError: {e}")
     finally:

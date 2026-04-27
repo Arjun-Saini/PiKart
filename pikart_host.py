@@ -1,5 +1,4 @@
 from __future__ import annotations
-import json
 import math
 import os
 import queue
@@ -23,7 +22,7 @@ from pikart_shared import (
     _blit_c, _btn, make_button_rect,
     render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
-    send_json, recv_packet, encode_state, _PKT_JSON, _PKT_STATE, aabb_mtv,
+    send_msg, recv_msg, aabb_mtv,
 )
 def log(msg: str):
     print(f"[HOST {time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -293,9 +292,20 @@ def close_server():
         server_sock = None
 
 
-def build_state_packet(game_state: str, countdown: float, go_display: float) -> tuple:
-    return (_PKT_STATE, encode_state(game_state, countdown, go_display > 0.0,
-                                     p1, p2, shells, spawners))
+def build_state_packet(game_state: str, countdown: float, go_display: float) -> dict:
+    return {
+        'state': game_state, 'countdown': round(countdown, 4), 'go': go_display > 0.0,
+        'p1': {'x': round(p1.world_x, 3), 'y': round(p1.world_y, 3),
+               'heading': round(p1.heading, 5), 'lap': p1.max_lap,
+               'place': p1.finish_place, 'powerup': p1.stored_powerup,
+               'size': round(p1.size_multiplier, 4)},
+        'p2': {'x': round(p2.world_x, 3), 'y': round(p2.world_y, 3),
+               'heading': round(p2.heading, 5), 'lap': p2.max_lap,
+               'place': p2.finish_place, 'powerup': p2.stored_powerup,
+               'size': round(p2.size_multiplier, 4)},
+        'shells':   [sh.to_dict() for sh in shells],
+        'spawners': [sp.to_dict() for sp in spawners],
+    }
 
 # =============================================================================
 # Main loop
@@ -316,7 +326,7 @@ while running:
                 flush_queue(input_q)
                 flush_queue(state_q)
                 start_net_threads(conn_sock, input_q, state_q)
-                state_q.put((_PKT_JSON, json.dumps({'connected': True}).encode()))
+                state_q.put({'connected': True})
                 map_names     = scan_map_files()
                 map_row_rects = build_map_row_rects(len(map_names))
                 current_state = STATE_MAP_SELECT
@@ -354,13 +364,13 @@ while running:
             elif current_state == STATE_MAP_SELECT:
                 for i, rect in enumerate(map_row_rects):
                     if rect.collidepoint(pos):
-                        send_json(conn_sock, {'map': map_names[i]})
+                        send_msg(conn_sock, {'map': map_names[i]})
                         start_race(map_names[i])
                         current_state = STATE_GAME
                         break
             elif current_state == STATE_POST_RACE:
                 if post_race_again_rect.collidepoint(pos):
-                    state_q.put((_PKT_JSON, json.dumps({'replay': True}).encode()))
+                    state_q.put({'replay': True})
                     map_names = scan_map_files(); map_row_rects = build_map_row_rects(len(map_names))
                     current_state = STATE_MAP_SELECT
                 elif post_race_menu_rect.collidepoint(pos):
