@@ -17,15 +17,15 @@ from pikart_shared import (
     DISCONNECTED, flush_queue, net_send_thread, net_recv_thread,
     make_button_rect, render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
-    send_msg, recv_msg,
+    encode_input, _PKT_INPUT,
 )
 
 def log(msg: str):
     print(f"[CLIENT {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 # Uncomment these lines to display on PiTFT
-os.putenv('SDL_VIDEODRIVER', 'fbcon')
-os.putenv('SDL_FBDEV', '/dev/fb0')
+# os.putenv('SDL_VIDEODRIVER', 'fbcon')
+# os.putenv('SDL_FBDEV', '/dev/fb0')
 
 # =============================================================================
 # Network
@@ -235,11 +235,12 @@ while running:
 
     if current_state == STATE_GAME and latest_countdown <= 0.0 and not p2_race_finished:
         keys = pygame.key.get_pressed()
-        input_q.put({
-            'throttle': int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]),
-            'steer':    int(keys[KEY_RIGHT])   - int(keys[KEY_LEFT]),
-            'activate': bool(keys[pygame.K_SPACE]),
-        })
+        flush_queue(input_q)
+        input_q.put((_PKT_INPUT, encode_input(
+            int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]),
+            int(keys[KEY_RIGHT])   - int(keys[KEY_LEFT]),
+            bool(keys[pygame.K_SPACE]),
+        )))
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
