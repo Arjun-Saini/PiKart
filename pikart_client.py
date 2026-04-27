@@ -21,6 +21,10 @@ from pikart_shared import (
 def log(msg: str):
     print(f"[CLIENT {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
+# Uncomment these lines to display on PiTFT
+os.putenv('SDL_VIDEODRIVER', 'fbcon')
+os.putenv('SDL_FBDEV', '/dev/fb1')
+
 # =============================================================================
 # Network
 # =============================================================================
