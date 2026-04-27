@@ -19,7 +19,7 @@ from pikart_shared import (
     render_center_overlay_message, render_map, render_hud,
     send_msg, recv_msg,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_btn_pressed, joystick_menu_y, JS_SW2,
+    joystick_btn_pressed, joystick_btn_held, joystick_menu_y, JS_SW2,
 )
 
 DEBUG = 'debug' in sys.argv
@@ -246,7 +246,7 @@ while running:
         else:
             throttle = joystick_throttle()
             steer    = joystick_steer()
-            activate = joystick_btn_pressed(JS_SW2)
+            activate = joystick_btn_held(JS_SW2)
         flush_queue(input_q)
         input_q.put({'throttle': throttle, 'steer': steer, 'activate': activate})
 

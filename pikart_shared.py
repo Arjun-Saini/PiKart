@@ -736,6 +736,9 @@ def _js_to_float(raw: int) -> float:
     return max(-1.0, min(1.0, v / _JS_CENTRE))
 
 
+_js_btn_held: dict[int, bool] = {}   # current raw held state, readable by game loop
+
+
 def _js_poll_loop():
     import time as _t
     interval = 1.0 / _JS_POLL_HZ
@@ -744,13 +747,15 @@ def _js_poll_loop():
     while _js_running:
         x = _js_read_mcp3008(0)
         y = _js_read_mcp3008(1)
+        # read buttons outside lock to avoid holding lock during ADC
+        btn_states = {pin: (_js_pi.read(pin) == 0) for pin in sw_pins}
         with _js_lock:
             _js_x_raw = x
             _js_y_raw = y
-            for pin in sw_pins:
-                pressed = _js_pi.read(pin) == 0   # active low
+            for pin, pressed in btn_states.items():
                 _js_btn_edge[pin] = pressed and not _js_btn_prev.get(pin, False)
                 _js_btn_prev[pin] = pressed
+                _js_btn_held[pin] = pressed
         _t.sleep(interval)
 
 
@@ -790,12 +795,18 @@ def joystick_steer() -> float:
         return _js_to_float(_js_x_raw)
 
 
-# returns True once per button press (edge detect); sw_pin is JS_SW1 or JS_SW2
+# returns True once per button press (edge detect) — for menu selection
 def joystick_btn_pressed(sw_pin: int) -> bool:
     with _js_lock:
         v = _js_btn_edge.get(sw_pin, False)
         _js_btn_edge[sw_pin] = False
         return v
+
+
+# returns True while button is held — for game input (game loop does its own edge detect)
+def joystick_btn_held(sw_pin: int) -> bool:
+    with _js_lock:
+        return _js_btn_held.get(sw_pin, False)
 
 
 # returns -1, 0, or +1 for a menu move on Y; fires once per tilt past threshold, re-arms at neutral

@@ -24,7 +24,7 @@ from pikart_shared import (
     render_center_overlay_message, render_map, render_hud,
     send_msg, recv_msg, aabb_mtv,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_btn_pressed, joystick_menu_x, joystick_menu_y, JS_SW1,
+    joystick_btn_pressed, joystick_btn_held, joystick_menu_x, joystick_menu_y, JS_SW1,
 )
 
 DEBUG = 'debug' in sys.argv
@@ -476,7 +476,7 @@ while running:
         else:
             p1.throttle_input = joystick_throttle()
             p1.steer_input    = joystick_steer()
-            p1_space          = joystick_btn_pressed(JS_SW1)
+            p1_space          = joystick_btn_held(JS_SW1)
         if p1_space and not p1_prev_space and not p1.race_finished:
             activate_consumable(p1, p2, shells, owner_index=0)
         p1_prev_space = p1_space
