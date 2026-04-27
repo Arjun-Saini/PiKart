@@ -23,7 +23,13 @@ from pikart_shared import (
     render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
     send_msg, recv_msg, aabb_mtv,
+    joystick_init, joystick_stop, joystick_throttle, joystick_steer,
+    joystick_btn_pressed, joystick_menu_x, joystick_menu_y, JS_SW1,
 )
+
+DEBUG = 'debug' in sys.argv
+if not DEBUG:
+    joystick_init()
 def log(msg: str):
     print(f"[HOST {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -342,6 +348,33 @@ while running:
         except queue.Empty:
             pass
 
+    # joystick menu navigation (skipped in debug mode since joystick not initialised)
+    if not DEBUG and current_state in (STATE_MENU, STATE_MAP_SELECT, STATE_POST_RACE):
+        my = joystick_menu_y()
+        mx = joystick_menu_x()
+        if current_state == STATE_MENU and my != 0:
+            menu_sel = 1 - menu_sel
+        elif current_state == STATE_MAP_SELECT and my != 0:
+            map_sel = (map_sel + my) % max(1, len(map_names))
+        elif current_state == STATE_POST_RACE and mx != 0:
+            post_sel = 1 - post_sel
+        if joystick_btn_pressed(JS_SW1):
+            if current_state == STATE_MENU:
+                if menu_sel == 0:
+                    error_msg = None; open_server_socket(); current_state = STATE_WAITING
+                else:
+                    running = False
+            elif current_state == STATE_MAP_SELECT and map_names:
+                send_msg(conn_sock, {'map': map_names[map_sel]})
+                start_race(map_names[map_sel]); current_state = STATE_GAME
+            elif current_state == STATE_POST_RACE:
+                if post_sel == 0:
+                    state_q.put({'replay': True})
+                    map_names = scan_map_files(); map_row_rects = build_map_row_rects(len(map_names))
+                    map_sel = 0; current_state = STATE_MAP_SELECT
+                else:
+                    disconnect(None); error_msg = None; close_server()
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -437,8 +470,13 @@ while running:
         go_display_remaining = max(0.0, go_display_remaining - dt)
 
     if countdown_remaining <= 0.0:
-        p1.handle_input()
-        p1_space = bool(pygame.key.get_pressed()[pygame.K_SPACE])
+        if DEBUG:
+            p1.handle_input()
+            p1_space = bool(pygame.key.get_pressed()[pygame.K_SPACE])
+        else:
+            p1.throttle_input = joystick_throttle()
+            p1.steer_input    = joystick_steer()
+            p1_space          = joystick_btn_pressed(JS_SW1)
         if p1_space and not p1_prev_space and not p1.race_finished:
             activate_consumable(p1, p2, shells, owner_index=0)
         p1_prev_space = p1_space
@@ -480,8 +518,11 @@ while running:
                 nx, ny   = math.cos(sh.heading), math.sin(sh.heading)
                 vn_hit   = hit.vel_x * nx + hit.vel_y * ny
                 vn_shell = sh.vel_x  * nx + sh.vel_y  * ny
-                hit.vel_x += (vn_shell - vn_hit) * nx
-                hit.vel_y += (vn_shell - vn_hit) * ny
+                if sh.shell_type == POWERUP_RED_SHELL:
+                    hit.vel_x = hit.vel_y = 0.0
+                else:
+                    hit.vel_x += (vn_shell - vn_hit) * nx
+                    hit.vel_y += (vn_shell - vn_hit) * ny
                 sh.vel_x -= 2.0 * vn_shell * nx
                 sh.vel_y -= 2.0 * vn_shell * ny
                 sh.heading = math.atan2(sh.vel_y, sh.vel_x)
@@ -538,4 +579,6 @@ while running:
 pygame.quit()
 log("shutting down")
 close_server()
+if not DEBUG:
+    joystick_stop()
 sys.exit()

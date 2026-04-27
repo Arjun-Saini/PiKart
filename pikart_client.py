@@ -18,7 +18,13 @@ from pikart_shared import (
     make_button_rect, render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
     send_msg, recv_msg,
+    joystick_init, joystick_stop, joystick_throttle, joystick_steer,
+    joystick_btn_pressed, joystick_menu_y, JS_SW2,
 )
+
+DEBUG = 'debug' in sys.argv
+if not DEBUG:
+    joystick_init()
 
 def log(msg: str):
     print(f"[CLIENT {time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -232,12 +238,35 @@ while running:
             p2_total_timer += dt; p2_lap_timer += dt
 
     if current_state == STATE_GAME and latest_countdown <= 0.0 and not p2_race_finished:
-        keys = pygame.key.get_pressed()
-        input_q.put({
-            'throttle': int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]),
-            'steer':    int(keys[KEY_RIGHT])   - int(keys[KEY_LEFT]),
-            'activate': bool(keys[pygame.K_SPACE]),
-        })
+        if DEBUG:
+            keys = pygame.key.get_pressed()
+            throttle = float(int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]))
+            steer    = float(int(keys[KEY_RIGHT])   - int(keys[KEY_LEFT]))
+            activate = bool(keys[pygame.K_SPACE])
+        else:
+            throttle = joystick_throttle()
+            steer    = joystick_steer()
+            activate = joystick_btn_pressed(JS_SW2)
+        flush_queue(input_q)
+        input_q.put({'throttle': throttle, 'steer': steer, 'activate': activate})
+
+    # joystick menu navigation
+    if not DEBUG and current_state in (STATE_MENU, STATE_POST_RACE):
+        my = joystick_menu_y()
+        if current_state == STATE_MENU and my != 0:
+            menu_sel = 1 - menu_sel
+        if joystick_btn_pressed(JS_SW2):
+            if current_state == STATE_MENU:
+                if menu_sel == 0:
+                    log("Play selected (joystick)")
+                    error_msg = None; waiting_msg = 'Connecting...'
+                    flush_queue(connect_result_q); flush_queue(input_q); flush_queue(state_q)
+                    threading.Thread(target=connect_thread, args=(connect_result_q,), daemon=True).start()
+                    current_state = STATE_WAITING
+                else:
+                    running = False
+            elif current_state == STATE_POST_RACE and post_sel == 1:
+                disconnect(None); error_msg = None
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -314,4 +343,6 @@ while running:
     pygame.display.flip()
 
 pygame.quit()
+if not DEBUG:
+    joystick_stop()
 sys.exit()

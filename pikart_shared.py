@@ -467,8 +467,8 @@ class Vehicle:
         self.world_y    = start_y
         self.vel_x: float = 0.0
         self.vel_y: float = 0.0
-        self.throttle_input: int = 0
-        self.steer_input:    int = 0
+        self.throttle_input: float = 0.0
+        self.steer_input:    float = 0.0
         self.heading:   float = 0.0
         self.ang_vel:   float = 0.0
         self.prev_world_x = start_x
@@ -496,8 +496,8 @@ class Vehicle:
 
     def handle_input(self):
         keys = pygame.key.get_pressed()
-        self.throttle_input = int(keys[self.throttle_forward_key]) - int(keys[self.throttle_back_key])
-        self.steer_input    = int(keys[self.steer_right_key])      - int(keys[self.steer_left_key])
+        self.throttle_input = float(int(keys[self.throttle_forward_key]) - int(keys[self.throttle_back_key]))
+        self.steer_input    = float(int(keys[self.steer_right_key])      - int(keys[self.steer_left_key]))
 
     def update_physics(self, dt: float):
         self.prev_world_x, self.prev_world_y = self.world_x, self.world_y
@@ -671,3 +671,157 @@ def render_hud(screen: pygame.Surface, viewport_rect: pygame.Rect,
     pw = max(s.get_width() + 6, w)
     powerup_box = pygame.Rect(viewport_rect.right - m - pw, lap_box.bottom + 3, pw, h)
     _text_box(screen, s, powerup_box)
+
+# =============================================================================
+# Joystick input (MCP3008 via bit-banged SPI, pigpio)
+#
+# Wiring:
+#   MCP3008 CLK  -> GPIO 5    MCP3008 MOSI -> GPIO 6
+#   MCP3008 MISO -> GPIO 13   MCP3008 CS   -> GPIO 19
+#   Joystick VRx -> CH0 (steer)   VRy -> CH1 (throttle)
+#   P1 button -> GPIO 27 (active low)   P2 button -> GPIO 17 (active low)
+# =============================================================================
+
+_JS_CLK  = 5
+_JS_MOSI = 6
+_JS_MISO = 13
+_JS_CS   = 19
+JS_SW1   = 27   # exported so host/client can pass to joystick_btn_pressed
+JS_SW2   = 17
+
+_JS_SPI_DELAY    = 0.00001   # 10 µs
+_JS_POLL_HZ      = 100
+_JS_DEADZONE     = 0.04
+_JS_MENU_TRIGGER = 0.30      # tilt fraction to fire a menu move
+_JS_MENU_NEUTRAL = 0.15      # must return within this to re-arm
+
+# module-level state
+_js_pi       = None
+_js_lock     = threading.Lock()
+_js_x        = 0.0
+_js_y        = 0.0
+_js_btn_prev: dict[int, bool] = {}   # sw_pin -> previous raw state
+_js_btn_edge: dict[int, bool] = {}   # sw_pin -> pending edge event
+_js_menu_x_armed = True
+_js_menu_y_armed = True
+_js_running  = False
+
+
+def _js_read_mcp3008(channel: int) -> int:
+    pi = _js_pi
+    pi.write(_JS_CS, 0)
+    import time as _t; _t.sleep(_JS_SPI_DELAY)
+    for bit in [1, 1, (channel >> 2) & 1, (channel >> 1) & 1, channel & 1]:
+        pi.write(_JS_MOSI, bit)
+        _t.sleep(_JS_SPI_DELAY)
+        pi.write(_JS_CLK, 1); _t.sleep(_JS_SPI_DELAY)
+        pi.write(_JS_CLK, 0); _t.sleep(_JS_SPI_DELAY)
+    pi.write(_JS_CLK, 1); _t.sleep(_JS_SPI_DELAY)
+    pi.write(_JS_CLK, 0); _t.sleep(_JS_SPI_DELAY)
+    result = 0
+    for _ in range(10):
+        pi.write(_JS_CLK, 1); _t.sleep(_JS_SPI_DELAY)
+        result = (result << 1) | pi.read(_JS_MISO)
+        pi.write(_JS_CLK, 0); _t.sleep(_JS_SPI_DELAY)
+    pi.write(_JS_CS, 1)
+    return result
+
+
+def _js_normalise(raw: int) -> float:
+    v = (raw / 1023.0 - 0.5) * 2.0
+    if abs(v) < _JS_DEADZONE:
+        return 0.0
+    sign = 1.0 if v > 0 else -1.0
+    return sign * (abs(v) - _JS_DEADZONE) / (1.0 - _JS_DEADZONE)
+
+
+def _js_poll_loop():
+    import time as _t
+    interval = 1.0 / _JS_POLL_HZ
+    sw_pins = [JS_SW1, JS_SW2]
+    global _js_x, _js_y
+    while _js_running:
+        x =  _js_normalise(_js_read_mcp3008(0))
+        y = -_js_normalise(_js_read_mcp3008(1))   # invert: up = positive throttle
+        with _js_lock:
+            _js_x = x
+            _js_y = y
+            for pin in sw_pins:
+                raw = _js_pi.read(pin) == 0   # active low
+                _js_btn_edge[pin] = raw and not _js_btn_prev.get(pin, False)
+                _js_btn_prev[pin] = raw
+        _t.sleep(interval)
+
+
+def joystick_init():
+    global _js_pi, _js_running
+    import pigpio
+    _js_pi = pigpio.pi()
+    if not _js_pi.connected:
+        raise RuntimeError("pigpiod not running — start with: sudo pigpiod")
+    import pigpio as _pg
+    for pin, mode in ((_JS_CLK, _pg.OUTPUT), (_JS_MOSI, _pg.OUTPUT),
+                      (_JS_MISO, _pg.INPUT), (_JS_CS, _pg.OUTPUT),
+                      (JS_SW1, _pg.INPUT), (JS_SW2, _pg.INPUT)):
+        _js_pi.set_mode(pin, mode)
+    _js_pi.set_pull_up_down(JS_SW1, _pg.PUD_UP)
+    _js_pi.set_pull_up_down(JS_SW2, _pg.PUD_UP)
+    _js_pi.write(_JS_CS, 1)
+    _js_pi.write(_JS_CLK, 0)
+    _js_running = True
+    threading.Thread(target=_js_poll_loop, daemon=True).start()
+
+
+def joystick_stop():
+    global _js_running
+    _js_running = False
+    if _js_pi:
+        _js_pi.stop()
+
+
+def joystick_throttle() -> float:
+    with _js_lock:
+        return _js_y
+
+
+def joystick_steer() -> float:
+    with _js_lock:
+        return _js_x
+
+
+# returns True once per button press (edge detect); sw_pin is JS_SW1 or JS_SW2
+def joystick_btn_pressed(sw_pin: int) -> bool:
+    with _js_lock:
+        v = _js_btn_edge.get(sw_pin, False)
+        _js_btn_edge[sw_pin] = False
+        return v
+
+
+# returns -1, 0, or +1 for a menu move on the Y axis; fires once per tilt, re-arms at neutral
+def joystick_menu_y() -> int:
+    global _js_menu_y_armed
+    with _js_lock:
+        y = _js_y
+    if _js_menu_y_armed:
+        if y < -_JS_MENU_TRIGGER:
+            _js_menu_y_armed = False; return -1
+        if y > _JS_MENU_TRIGGER:
+            _js_menu_y_armed = False; return 1
+    elif abs(y) < _JS_MENU_NEUTRAL:
+        _js_menu_y_armed = True
+    return 0
+
+
+# returns -1, 0, or +1 for a menu move on the X axis
+def joystick_menu_x() -> int:
+    global _js_menu_x_armed
+    with _js_lock:
+        x = _js_x
+    if _js_menu_x_armed:
+        if x < -_JS_MENU_TRIGGER:
+            _js_menu_x_armed = False; return -1
+        if x > _JS_MENU_TRIGGER:
+            _js_menu_x_armed = False; return 1
+    elif abs(x) < _JS_MENU_NEUTRAL:
+        _js_menu_x_armed = True
+    return 0
