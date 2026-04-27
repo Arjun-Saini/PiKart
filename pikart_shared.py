@@ -150,7 +150,6 @@ def recv_msg(sock: socket.socket) -> dict:
 def net_send_thread(sock: socket.socket, send_q: queue.Queue, signal_q: queue.Queue, log):
     log("send_thread started")
     try:
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         while True:
             payload = send_q.get()
             if payload is DISCONNECTED:
@@ -277,6 +276,48 @@ class Map:
                     self.grid[r][c].tile_type     = 'tri_bottom_right'
                     self.grid[r+1][c+1].tile_type = 'tri_top_left'
 
+        # BFS from p1 spawn to classify interior vs exterior tiles
+        sc = int(self.player1_spawn[0] // TILE_SIZE)
+        sr = int(self.player1_spawn[1] // TILE_SIZE)
+        self.interior: set[tuple[int, int]] = {(sr, sc)}
+        stack = [(sr, sc)]
+        while stack:
+            r, c = stack.pop()
+            for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
+                nr, nc = r+dr, c+dc
+                if (nr, nc) in self.interior or not (0 <= nr < self.rows and 0 <= nc < self.cols):
+                    continue
+                tt = self.grid[nr][nc].tile_type
+                if TILE_TYPE_INFO.get(tt, TILE_TYPE_INFO['open'])['is_wall'] and not tt.startswith('tri_'):
+                    continue
+                self.interior.add((nr, nc))
+                stack.append((nr, nc))
+
+    def is_interior(self, world_x: float, world_y: float) -> bool:
+        return (int(world_y) // TILE_SIZE, int(world_x) // TILE_SIZE) in self.interior
+
+    # BFS outward from (world_x, world_y) to find center of nearest interior tile
+    def nearest_interior_center(self, world_x: float, world_y: float) -> tuple[float, float]:
+        start_r = int(world_y) // TILE_SIZE
+        start_c = int(world_x) // TILE_SIZE
+        if (start_r, start_c) in self.interior:
+            return (start_c * TILE_SIZE + TILE_SIZE / 2, start_r * TILE_SIZE + TILE_SIZE / 2)
+        visited = {(start_r, start_c)}
+        q = [(start_r, start_c)]
+        while q:
+            next_q = []
+            for r, c in q:
+                for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
+                    nr, nc = r+dr, c+dc
+                    if (nr, nc) in visited or not (0 <= nr < self.rows and 0 <= nc < self.cols):
+                        continue
+                    visited.add((nr, nc))
+                    if (nr, nc) in self.interior:
+                        return (nc * TILE_SIZE + TILE_SIZE / 2, nr * TILE_SIZE + TILE_SIZE / 2)
+                    next_q.append((nr, nc))
+            q = next_q
+        return self.player1_spawn
+
     def get_tiles_in_rect(self, world_rect: pygame.Rect) -> list[Tile]:
         c0 = max(0, world_rect.left   // TILE_SIZE)
         c1 = min(self.cols, world_rect.right  // TILE_SIZE + 1)
@@ -285,29 +326,12 @@ class Map:
         return [self.grid[r][c] for r in range(r0, r1) for c in range(c0, c1)]
 
     def build_surface(self) -> pygame.Surface:
-        # BFS from p1 spawn to classify interior vs exterior tiles
-        sc = int(self.player1_spawn[0] // TILE_SIZE)
-        sr = int(self.player1_spawn[1] // TILE_SIZE)
-        interior: set[tuple[int, int]] = {(sr, sc)}
-        stack = [(sr, sc)]
-        while stack:
-            r, c = stack.pop()
-            for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
-                nr, nc = r+dr, c+dc
-                if (nr, nc) in interior or not (0 <= nr < self.rows and 0 <= nc < self.cols):
-                    continue
-                tt = self.grid[nr][nc].tile_type
-                if TILE_TYPE_INFO.get(tt, TILE_TYPE_INFO['open'])['is_wall'] and not tt.startswith('tri_'):
-                    continue
-                interior.add((nr, nc))
-                stack.append((nr, nc))
-
         surf = pygame.Surface((self.pixel_width, self.pixel_height), pygame.SRCALPHA)
         for row in self.grid:
             for tile in row:
                 info = TILE_TYPE_INFO.get(tile.tile_type, TILE_TYPE_INFO['open'])
                 wr   = tile.world_rect
-                is_interior = (wr.top // TILE_SIZE, wr.left // TILE_SIZE) in interior
+                is_interior = (wr.top // TILE_SIZE, wr.left // TILE_SIZE) in self.interior
                 if info['shape'] == 'rect':
                     pygame.draw.rect(surf, info['color'] if info['is_wall'] or is_interior else COLOR_BACKGROUND, wr)
                 else:
@@ -537,8 +561,9 @@ def make_button_rect(center_x: int, center_y: int, width: int = 110, height: int
 
 
 def _btn(screen: pygame.Surface, rect: pygame.Rect, label: str, font: pygame.font.Font,
-         hovered: bool, bg=(210,210,210), bg_h=(235,235,235), fg=(0,0,0), border=(0,0,0), bw: int = 3):
-    pygame.draw.rect(screen, bg_h if hovered else bg, rect)
+         selected: bool = False,
+         bg=(210,210,210), bg_h=(235,235,235), fg=(0,0,0), border=(0,0,0), bw: int = 3):
+    pygame.draw.rect(screen, bg_h if selected else bg, rect)
     pygame.draw.rect(screen, border, rect, bw)
     s = font.render(label, True, fg)
     screen.blit(s, s.get_rect(center=rect.center))
@@ -562,26 +587,27 @@ def render_status_screen(screen: pygame.Surface, title_font: pygame.font.Font,
 
 
 def render_menu(screen: pygame.Surface, play_rect: pygame.Rect, quit_rect: pygame.Rect,
-                title_font: pygame.font.Font, button_font: pygame.font.Font, error_msg: str | None):
+                title_font: pygame.font.Font, button_font: pygame.font.Font,
+                error_msg: str | None, selected_idx: int = 0):
     screen.fill((25, 25, 25))
     _blit_c(screen, title_font.render('PiKart', True, (255,255,255)), (VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//5))
     if error_msg:
         _blit_c(screen, button_font.render(error_msg, True, COLOR_ERROR), (VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//2 - 55))
-    mp = pygame.mouse.get_pos()
-    _btn(screen, play_rect, 'Play', button_font, play_rect.collidepoint(mp))
-    _btn(screen, quit_rect, 'Quit', button_font, quit_rect.collidepoint(mp))
+    _btn(screen, play_rect, 'Play', button_font, selected_idx == 0,
+         bg=(50,50,80), bg_h=(80,80,130), fg=(255,255,255), border=(120,120,180))
+    _btn(screen, quit_rect, 'Quit', button_font, selected_idx == 1,
+         bg=(50,50,80), bg_h=(80,80,130), fg=(255,255,255), border=(120,120,180))
 
 
 def render_post_race(screen: pygame.Surface, play_again_rect: pygame.Rect, menu_rect: pygame.Rect,
-                     title_font: pygame.font.Font, button_font: pygame.font.Font):
+                     title_font: pygame.font.Font, button_font: pygame.font.Font, selected_idx: int = 0):
     overlay = pygame.Surface((VIEWPORT_WIDTH, VIEWPORT_HEIGHT), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 160))
     screen.blit(overlay, (0, 0))
     _blit_c(screen, title_font.render('Race Over!', True, (255,255,255)), (VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//2 - 80))
-    mp = pygame.mouse.get_pos()
-    _btn(screen, play_again_rect, 'Play Again', button_font, play_again_rect.collidepoint(mp),
-         bg=(60,140,60), bg_h=(90,185,90), fg=(255,255,255), border=(30,90,30))
-    _btn(screen, menu_rect, 'Exit to Menu', button_font, menu_rect.collidepoint(mp))
+    _btn(screen, play_again_rect, 'Play Again', button_font,
+         selected_idx == 0, bg=(60,140,60), bg_h=(90,185,90), fg=(255,255,255), border=(30,90,30))
+    _btn(screen, menu_rect, 'Exit to Menu', button_font, selected_idx == 1)
 
 
 def render_center_overlay_message(screen: pygame.Surface, message: str, font: pygame.font.Font):

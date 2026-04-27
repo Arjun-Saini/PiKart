@@ -27,10 +27,6 @@ from pikart_shared import (
 def log(msg: str):
     print(f"[HOST {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
-# Uncomment these lines to display on PiTFT
-# os.putenv('SDL_VIDEODRIVER', 'fbcon')
-# os.putenv('SDL_FBDEV', '/dev/fb0')
-
 # =============================================================================
 # Host-only constants
 # =============================================================================
@@ -130,12 +126,11 @@ def activate_consumable(vehicle: Vehicle, opponent: Vehicle, shells: list, owner
 # =============================================================================
 
 def render_map_select(screen: pygame.Surface, map_names: list[str], map_row_rects: list[pygame.Rect],
-                      title_font: pygame.font.Font, button_font: pygame.font.Font):
+                      title_font: pygame.font.Font, button_font: pygame.font.Font, selected_idx: int = 0):
     screen.fill((25, 25, 25))
     _blit_c(screen, title_font.render('Select Map', True, (255,255,255)), (VIEWPORT_WIDTH//2, 20))
-    mp = pygame.mouse.get_pos()
-    for name, rect in zip(map_names, map_row_rects):
-        _btn(screen, rect, name, button_font, rect.collidepoint(mp),
+    for i, (name, rect) in enumerate(zip(map_names, map_row_rects)):
+        _btn(screen, rect, name, button_font, selected_idx == i,
              bg=(50,50,80), bg_h=(80,80,130), fg=(255,255,255), border=(120,120,180))
     if not map_names:
         _blit_c(screen, button_font.render('No .txt maps found.', True, COLOR_ERROR),
@@ -206,6 +201,9 @@ post_race_menu_rect  = make_button_rect(VIEWPORT_WIDTH//2 + 60, VIEWPORT_HEIGHT/
 
 current_state = STATE_MENU
 error_msg: str | None = None
+menu_sel     = 0   # 0=Play, 1=Quit
+map_sel      = 0   # index into map_names
+post_sel     = 0   # 0=Play Again, 1=Exit to Menu
 
 game_map: Map | None               = None
 map_surface: pygame.Surface | None = None
@@ -334,14 +332,12 @@ while running:
             pass
 
     if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT):
-        # drain all queued input packets, keeping only the most recent
         try:
-            while True:
-                item = input_q.get_nowait()
-                if item is DISCONNECTED:
-                    log("DISCONNECTED from input_q")
-                    disconnect('Connection lost.')
-                    break
+            item = input_q.get_nowait()
+            if item is DISCONNECTED:
+                log("DISCONNECTED from input_q")
+                disconnect('Connection lost.')
+            else:
                 last_client_input = item
         except queue.Empty:
             pass
@@ -349,11 +345,44 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT, STATE_WAITING):
-                disconnect(None); error_msg = None; close_server()
-            else:
-                running = False
+        elif event.type == pygame.KEYDOWN:
+            key = event.key
+            if key == pygame.K_ESCAPE:
+                if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT, STATE_WAITING):
+                    disconnect(None); error_msg = None; close_server()
+                else:
+                    running = False
+
+            elif current_state == STATE_MENU:
+                if key in (pygame.K_UP, pygame.K_DOWN):
+                    menu_sel = 1 - menu_sel
+                elif key == pygame.K_SPACE:
+                    if menu_sel == 0:
+                        error_msg = None; open_server_socket(); current_state = STATE_WAITING
+                    else:
+                        running = False
+
+            elif current_state == STATE_MAP_SELECT:
+                if key == pygame.K_UP:
+                    map_sel = (map_sel - 1) % max(1, len(map_names))
+                elif key == pygame.K_DOWN:
+                    map_sel = (map_sel + 1) % max(1, len(map_names))
+                elif key == pygame.K_SPACE and map_names:
+                    send_msg(conn_sock, {'map': map_names[map_sel]})
+                    start_race(map_names[map_sel])
+                    current_state = STATE_GAME
+
+            elif current_state == STATE_POST_RACE:
+                if key in (pygame.K_LEFT, pygame.K_RIGHT):
+                    post_sel = 1 - post_sel
+                elif key == pygame.K_SPACE:
+                    if post_sel == 0:
+                        state_q.put({'replay': True})
+                        map_names = scan_map_files(); map_row_rects = build_map_row_rects(len(map_names))
+                        map_sel = 0; current_state = STATE_MAP_SELECT
+                    else:
+                        disconnect(None); error_msg = None; close_server()
+
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = event.pos
             if current_state == STATE_MENU:
@@ -372,12 +401,12 @@ while running:
                 if post_race_again_rect.collidepoint(pos):
                     state_q.put({'replay': True})
                     map_names = scan_map_files(); map_row_rects = build_map_row_rects(len(map_names))
-                    current_state = STATE_MAP_SELECT
+                    map_sel = 0; current_state = STATE_MAP_SELECT
                 elif post_race_menu_rect.collidepoint(pos):
                     disconnect(None); error_msg = None; close_server()
 
     if current_state == STATE_MENU:
-        render_menu(screen, play_button_rect, quit_button_rect, title_font, button_font, error_msg)
+        render_menu(screen, play_button_rect, quit_button_rect, title_font, button_font, error_msg, menu_sel)
         pygame.display.flip(); continue
 
     if current_state == STATE_WAITING:
@@ -385,7 +414,7 @@ while running:
         pygame.display.flip(); continue
 
     if current_state == STATE_MAP_SELECT:
-        render_map_select(screen, map_names, map_row_rects, title_font, button_font)
+        render_map_select(screen, map_names, map_row_rects, title_font, button_font, map_sel)
         pygame.display.flip(); continue
 
     if current_state == STATE_POST_RACE:
@@ -394,7 +423,7 @@ while running:
         p1.draw(screen, full_viewport.centerx, full_viewport.centery)
         render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
                    p1_total_timer, p1_lap_timer, p1.finish_place, hud_font, place_font, p1.stored_powerup)
-        render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font)
+        render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font, post_sel)
         pygame.display.flip()
         state_q.put(build_state_packet(STATE_POST_RACE, 0.0, 0.0))
         continue
@@ -448,9 +477,6 @@ while running:
             hit = p2 if sh.owner_index == 0 else p1
             if sh.hits_vehicle(hit):
                 sh.bounces_remaining -= 1
-                if sh.shell_type == POWERUP_RED_SHELL:
-                    hit.vel_x = hit.vel_y = 0.0
-                    continue
                 nx, ny   = math.cos(sh.heading), math.sin(sh.heading)
                 vn_hit   = hit.vel_x * nx + hit.vel_y * ny
                 vn_shell = sh.vel_x  * nx + sh.vel_y  * ny
@@ -463,6 +489,13 @@ while running:
                     continue
             surviving.append(sh)
         shells = surviving
+
+        # out-of-bounds correction: snap exterior vehicles/shells to nearest interior tile
+        for v in (p1, p2):
+            if not game_map.is_interior(v.world_x, v.world_y):
+                v.world_x, v.world_y = game_map.nearest_interior_center(v.world_x, v.world_y)
+                v.vel_x = v.vel_y = 0.0
+        shells = [sh for sh in shells if game_map.is_interior(sh.world_x, sh.world_y)]
 
         for p, fin in ((p1, update_lap_progress(p1, game_map)),
                        (p2, update_lap_progress(p2, game_map))):

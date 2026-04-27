@@ -23,10 +23,6 @@ from pikart_shared import (
 def log(msg: str):
     print(f"[CLIENT {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
-# Uncomment these lines to display on PiTFT
-# os.putenv('SDL_VIDEODRIVER', 'fbcon')
-# os.putenv('SDL_FBDEV', '/dev/fb0')
-
 # =============================================================================
 # Network
 # =============================================================================
@@ -120,7 +116,9 @@ post_race_menu_rect  = make_button_rect(VIEWPORT_WIDTH//2 + 60, VIEWPORT_HEIGHT/
 
 current_state = STATE_MENU
 error_msg: str | None = None
-waiting_msg = 'Connecting...'
+waiting_msg  = 'Connecting...'
+menu_sel     = 0   # 0=Play, 1=Quit
+post_sel     = 1   # 0=Play Again (inactive on client), 1=Exit to Menu
 
 game_map: Map | None               = None
 map_surface: pygame.Surface | None = None
@@ -235,7 +233,6 @@ while running:
 
     if current_state == STATE_GAME and latest_countdown <= 0.0 and not p2_race_finished:
         keys = pygame.key.get_pressed()
-        flush_queue(input_q)
         input_q.put({
             'throttle': int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]),
             'steer':    int(keys[KEY_RIGHT])   - int(keys[KEY_LEFT]),
@@ -245,13 +242,33 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            if current_state in (STATE_GAME, STATE_POST_RACE, STATE_WAITING):
-                if current_state == STATE_WAITING and sock is None:
-                    connect_result_q.put(DISCONNECTED)
-                disconnect(None); error_msg = None
-            else:
-                running = False
+        elif event.type == pygame.KEYDOWN:
+            key = event.key
+            if key == pygame.K_ESCAPE:
+                if current_state in (STATE_GAME, STATE_POST_RACE, STATE_WAITING):
+                    if current_state == STATE_WAITING and sock is None:
+                        connect_result_q.put(DISCONNECTED)
+                    disconnect(None); error_msg = None
+                else:
+                    running = False
+
+            elif current_state == STATE_MENU:
+                if key in (pygame.K_UP, pygame.K_DOWN):
+                    menu_sel = 1 - menu_sel
+                elif key == pygame.K_SPACE:
+                    if menu_sel == 0:
+                        log("Play selected")
+                        error_msg = None; waiting_msg = 'Connecting...'
+                        flush_queue(connect_result_q); flush_queue(input_q); flush_queue(state_q)
+                        threading.Thread(target=connect_thread, args=(connect_result_q,), daemon=True).start()
+                        current_state = STATE_WAITING
+                    else:
+                        running = False
+
+            elif current_state == STATE_POST_RACE:
+                if key == pygame.K_SPACE and post_sel == 1:
+                    disconnect(None); error_msg = None
+
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = event.pos
             if current_state == STATE_MENU:
@@ -268,7 +285,7 @@ while running:
                     disconnect(None); error_msg = None
 
     if current_state == STATE_MENU:
-        render_menu(screen, play_button_rect, quit_button_rect, title_font, button_font, error_msg)
+        render_menu(screen, play_button_rect, quit_button_rect, title_font, button_font, error_msg, menu_sel)
         pygame.display.flip(); continue
 
     if current_state == STATE_WAITING:
@@ -292,7 +309,7 @@ while running:
         render_center_overlay_message(screen, 'GO!', countdown_font)
 
     if current_state == STATE_POST_RACE:
-        render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font)
+        render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font, post_sel)
 
     pygame.display.flip()
 
