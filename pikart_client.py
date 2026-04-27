@@ -1,3 +1,5 @@
+from __future__ import annotations
+import os
 import math
 import queue
 import socket
@@ -23,7 +25,7 @@ def log(msg: str):
 
 # Uncomment these lines to display on PiTFT
 os.putenv('SDL_VIDEODRIVER', 'fbcon')
-os.putenv('SDL_FBDEV', '/dev/fb1')
+os.putenv('SDL_FBDEV', '/dev/fb0')
 
 # =============================================================================
 # Network
