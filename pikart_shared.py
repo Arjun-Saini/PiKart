@@ -14,7 +14,7 @@ import pygame
 # Constants
 # =============================================================================
 
-HOST_IP   = '192.168.50.1'
+HOST_IP   = '127.0.0.1'
 HOST_PORT = 55000
 
 VIEWPORT_WIDTH  = 320
@@ -787,10 +787,11 @@ def joystick_steer() -> float:
         return _js_to_float(_js_x_raw)
 
 
-# returns True while button is held; sw_pin is JS_SW1 or JS_SW2
+# reads button state directly from GPIO, same as the test script — bypasses poll thread
 def joystick_btn(sw_pin: int) -> bool:
-    with _js_lock:
-        return _js_btn.get(sw_pin, False)
+    if _js_pi is None:
+        return False
+    return _js_pi.read(sw_pin) == 0   # active low
 
 
 # returns -1, 0, or +1 for a menu move on Y; re-arms after returning to neutral
