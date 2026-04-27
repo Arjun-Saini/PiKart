@@ -24,7 +24,7 @@ from pikart_shared import (
     render_center_overlay_message, render_map, render_hud,
     send_msg, recv_msg, aabb_mtv,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_btn_pressed, joystick_btn_held, joystick_menu_x, joystick_menu_y, JS_SW1,
+    joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW1,
 )
 
 DEBUG = 'debug' in sys.argv
@@ -234,7 +234,6 @@ accept_result_q = queue.Queue()
 input_q         = queue.Queue()
 state_q         = queue.Queue()
 last_client_input = {'throttle': 0, 'steer': 0, 'activate': False}
-p1_prev_space    = False
 p2_prev_activate = False
 
 
@@ -358,7 +357,7 @@ while running:
             map_sel = (map_sel + my) % max(1, len(map_names))
         elif current_state == STATE_POST_RACE and mx != 0:
             post_sel = 1 - post_sel
-        if joystick_btn_pressed(JS_SW1):
+        if joystick_btn(JS_SW1):
             if current_state == STATE_MENU:
                 if menu_sel == 0:
                     error_msg = None; open_server_socket(); current_state = STATE_WAITING
@@ -472,17 +471,16 @@ while running:
     if countdown_remaining <= 0.0:
         if DEBUG:
             p1.handle_input()
-            p1_space = bool(pygame.key.get_pressed()[pygame.K_SPACE])
+            if pygame.key.get_pressed()[pygame.K_SPACE] and not p1.race_finished:
+                activate_consumable(p1, p2, shells, owner_index=0)
         else:
             p1.throttle_input = joystick_throttle()
             p1.steer_input    = joystick_steer()
-            p1_space          = joystick_btn_held(JS_SW1)
-        if p1_space and not p1_prev_space and not p1.race_finished:
-            activate_consumable(p1, p2, shells, owner_index=0)
-        p1_prev_space = p1_space
+            if joystick_btn(JS_SW1) and not p1.race_finished:
+                activate_consumable(p1, p2, shells, owner_index=0)
 
-        p2.throttle_input = int(last_client_input.get('throttle', 0))
-        p2.steer_input    = int(last_client_input.get('steer', 0))
+        p2.throttle_input = float(last_client_input.get('throttle', 0))
+        p2.steer_input    = float(last_client_input.get('steer', 0))
         p2_act = bool(last_client_input.get('activate', False))
         if p2_act and not p2_prev_activate and not p2.race_finished:
             activate_consumable(p2, p1, shells, owner_index=1)
