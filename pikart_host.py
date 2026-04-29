@@ -10,7 +10,7 @@ import time
 import pygame
 
 from pikart_shared import (
-    HOST_IP, HOST_PORT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, FPS,
+    HOST_PORT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, FPS,
     TOTAL_LAPS, MAX_PHYSICS_DT, COLOR_BACKGROUND, COLOR_PLAYER, COLOR_PLAYER2,
     COLOR_ERROR, TILE_TYPE_INFO, TILE_SIZE, PLAYER_SIZE,
     STATE_MENU, STATE_WAITING, STATE_GAME, STATE_POST_RACE,
@@ -28,7 +28,8 @@ from pikart_shared import (
     motor_init, motor_stop, motor_rumble, motor_update,
 )
 
-DEBUG = 'debug' in sys.argv
+DEBUG   = 'debug' in sys.argv
+HOST_IP = '127.0.0.1' if DEBUG else '192.168.50.1'
 if not DEBUG:
     joystick_init()
     motor_init()

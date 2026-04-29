@@ -160,11 +160,13 @@ def net_send_thread(sock: socket.socket, send_q: queue.Queue, signal_q: queue.Qu
                 break
             send_msg(sock, payload)
     except OSError as e:
-        log(f"send_thread OSError: {e}")
+        try: log(f"send_thread OSError: {e}")
+        except Exception: pass
     finally:
-        signal_q.put(DISCONNECTED)
+        try: signal_q.put(DISCONNECTED)
+        except Exception: pass
         try: sock.close()
-        except OSError: pass
+        except Exception: pass
 
 
 # reads messages from socket into recv_q; on exit signals both signal queues
@@ -175,13 +177,17 @@ def net_recv_thread(sock: socket.socket, recv_q: queue.Queue,
         while True:
             recv_q.put(recv_msg(sock))
     except OSError as e:
-        log(f"recv_thread OSError: {e}")
+        try: log(f"recv_thread OSError: {e}")
+        except Exception: pass
     finally:
-        log("recv_thread exiting")
-        signal_q1.put(DISCONNECTED)
-        signal_q2.put(DISCONNECTED)
+        try: log("recv_thread exiting")
+        except Exception: pass
+        try: signal_q1.put(DISCONNECTED)
+        except Exception: pass
+        try: signal_q2.put(DISCONNECTED)
+        except Exception: pass
         try: sock.close()
-        except OSError: pass
+        except Exception: pass
 
 # =============================================================================
 # Physics helpers (used internally by game objects)
@@ -559,6 +565,7 @@ class Vehicle:
         rect = pygame.Rect(screen_x - h, screen_y - h, size, size)
         pygame.draw.rect(surface, self.color, rect)
         pygame.draw.rect(surface, (0, 0, 0), rect, 1)
+
 
 # =============================================================================
 # Render helpers (used by both host and client)
