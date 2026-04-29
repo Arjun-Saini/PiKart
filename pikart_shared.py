@@ -72,6 +72,36 @@ COLOR_PLAYER2       = ( 30, 100, 220)
 COLOR_FINISH        = (180, 180, 180)
 COLOR_ERROR         = (220,  60,  60)
 
+_PLAYER_SPRITE_CACHE: dict[str, pygame.Surface] = {}
+
+
+def _load_player_sprite(filename: str) -> pygame.Surface:
+    sprite = _PLAYER_SPRITE_CACHE.get(filename)
+    if sprite is None:
+        sprite_path = os.path.join(os.path.dirname(__file__), filename)
+        sprite = pygame.image.load(sprite_path).convert_alpha()
+        _PLAYER_SPRITE_CACHE[filename] = sprite
+    return sprite
+
+
+def _draw_player_sprite(surface: pygame.Surface, screen_x: int, screen_y: int,
+                        color: tuple[int, int, int], size_multiplier: float,
+                        heading: float):
+    size = int(PLAYER_SIZE * size_multiplier)
+    sprite = _load_player_sprite('red_car.png' if color == COLOR_PLAYER else 'blue_car.png')
+    sprite = pygame.transform.scale(sprite, (size, size))
+    angle = -math.degrees(heading) - 90.0
+    sprite = pygame.transform.rotate(sprite, angle)
+    surface.blit(sprite, sprite.get_rect(center=(screen_x, screen_y)))
+
+
+def _draw_player_sprite_static(surface: pygame.Surface, screen_x: int, screen_y: int,
+                               color: tuple[int, int, int], size_multiplier: float):
+    size = int(PLAYER_SIZE * size_multiplier)
+    sprite = _load_player_sprite('red_car.png' if color == COLOR_PLAYER else 'blue_car.png')
+    sprite = pygame.transform.scale(sprite, (size, size))
+    surface.blit(sprite, sprite.get_rect(center=(screen_x, screen_y)))
+
 # =============================================================================
 # Tile registry
 # =============================================================================
@@ -560,11 +590,8 @@ class Vehicle:
         return any_corrected
 
     def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
-        size = int(PLAYER_SIZE * self.size_multiplier)
-        h    = size // 2
-        rect = pygame.Rect(screen_x - h, screen_y - h, size, size)
-        pygame.draw.rect(surface, self.color, rect)
-        pygame.draw.rect(surface, (0, 0, 0), rect, 1)
+        _draw_player_sprite(surface, screen_x, screen_y, self.color, self.size_multiplier,
+                            self.heading)
 
 
 # =============================================================================

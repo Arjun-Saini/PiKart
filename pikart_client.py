@@ -14,6 +14,7 @@ from pikart_shared import (
     TOTAL_LAPS, MAX_PHYSICS_DT, COLOR_BACKGROUND, COLOR_PLAYER, COLOR_PLAYER2,
     STATE_MENU, STATE_WAITING, STATE_GAME, STATE_POST_RACE,
     Map, Camera, Shell, PowerupSpawner, PLAYER_SIZE,
+    _draw_player_sprite_static,
     DISCONNECTED, flush_queue, net_send_thread, net_recv_thread,
     make_button_rect, render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
@@ -31,6 +32,29 @@ if not DEBUG:
 
 def log(msg: str):
     print(f"[CLIENT {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+_PLAYER_SPRITE_CACHE: dict[str, pygame.Surface] = {}
+
+
+def _load_player_sprite(filename: str) -> pygame.Surface:
+    sprite = _PLAYER_SPRITE_CACHE.get(filename)
+    if sprite is None:
+        sprite_path = os.path.join(os.path.dirname(__file__), filename)
+        sprite = pygame.image.load(sprite_path).convert_alpha()
+        _PLAYER_SPRITE_CACHE[filename] = sprite
+    return sprite
+
+
+def _draw_player_sprite(surface: pygame.Surface, screen_x: int, screen_y: int,
+                        color: tuple[int, int, int], size_multiplier: float,
+                        heading: float):
+    size = int(PLAYER_SIZE * size_multiplier)
+    sprite = _load_player_sprite('red_car.png' if color == COLOR_PLAYER else 'blue_car.png')
+    sprite = pygame.transform.scale(sprite, (size, size))
+    angle = -math.degrees(heading) - 90.0
+    sprite = pygame.transform.rotate(sprite, angle)
+    surface.blit(sprite, sprite.get_rect(center=(screen_x, screen_y)))
 
 # =============================================================================
 # Network
@@ -96,11 +120,8 @@ class MirrorVehicle:
         self.size_multiplier = float(data.get('size', 1.0))
 
     def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
-        size = int(PLAYER_SIZE * self.size_multiplier)
-        h    = size // 2
-        rect = pygame.Rect(screen_x - h, screen_y - h, size, size)
-        pygame.draw.rect(surface, self.color, rect)
-        pygame.draw.rect(surface, (0, 0, 0), rect, 1)
+        _draw_player_sprite(surface, screen_x, screen_y, self.color, self.size_multiplier,
+                            self.heading)
 
 # =============================================================================
 # Main
@@ -341,7 +362,7 @@ while running:
     screen.fill(COLOR_BACKGROUND)
     render_map(screen, map_surface, camera, full_viewport,
                overlay_vehicles=[p1_mirror], overlay_shells=latest_shells, overlay_spawners=latest_spawners)
-    p2_mirror.draw(screen, full_viewport.centerx, full_viewport.centery)
+    _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p2_mirror.color, p2_mirror.size_multiplier)
     render_hud(screen, full_viewport, p2_mirror.max_lap, TOTAL_LAPS,
                p2_total_timer, p2_lap_timer, p2_mirror.finish_place,
                hud_font, place_font, p2_mirror.stored_powerup)

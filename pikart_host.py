@@ -15,6 +15,7 @@ from pikart_shared import (
     COLOR_ERROR, TILE_TYPE_INFO, TILE_SIZE, PLAYER_SIZE,
     STATE_MENU, STATE_WAITING, STATE_GAME, STATE_POST_RACE,
     Map, Camera, Vehicle, Shell, PowerupSpawner,
+    _draw_player_sprite_static,
     POWERUP_SIZE_GROW, POWERUP_SIZE_SHRINK, POWERUP_GREEN_SHELL, POWERUP_RED_SHELL,
     POWERUP_SIZE_SCALE, POWERUP_SIZE_DURATION, SHELL_SIZE,
     BOOST_TILE_DELTA, SLOWDOWN_TILE_DELTA,
@@ -466,7 +467,7 @@ while running:
     if current_state == STATE_POST_RACE:
         screen.fill(COLOR_BACKGROUND)
         render_map(screen, map_surface, camera, full_viewport, overlay_vehicles=[p2])
-        p1.draw(screen, full_viewport.centerx, full_viewport.centery)
+        _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p1.color, p1.size_multiplier)
         render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
                    p1_total_timer, p1_lap_timer, p1.finish_place, hud_font, place_font, p1.stored_powerup)
         render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font, post_sel)
@@ -590,7 +591,7 @@ while running:
     screen.fill(COLOR_BACKGROUND)
     render_map(screen, map_surface, camera, full_viewport,
                overlay_vehicles=[p2], overlay_shells=shells, overlay_spawners=spawners)
-    p1.draw(screen, full_viewport.centerx, full_viewport.centery)
+    _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p1.color, p1.size_multiplier)
     render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
                p1_total_timer, p1_lap_timer, p1.finish_place, hud_font, place_font, p1.stored_powerup)
 
