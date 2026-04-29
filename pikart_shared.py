@@ -703,6 +703,8 @@ _js_y_raw    = _JS_CENTRE
 _js_menu_x_armed = True
 _js_menu_y_armed = True
 _js_running  = False
+_js_prev_pressed: bool = False
+_js_press_latched: bool = False
 
 
 def _js_read_mcp3008(channel: int) -> int:
@@ -740,7 +742,17 @@ def _js_poll_loop():
     while _js_running:
         x = _js_read_mcp3008(0)
         y = _js_read_mcp3008(1)
+        pressed = False
+        try:
+            pressed = (_js_pi.read(JS_SW) == 0)
+        except Exception:
+            pressed = False
         with _js_lock:
+            # detect rising edge and latch it
+            global _js_prev_pressed, _js_press_latched
+            if pressed and not _js_prev_pressed:
+                _js_press_latched = True
+            _js_prev_pressed = pressed
             _js_x_raw = x
             _js_y_raw = y
         _t.sleep(interval)
@@ -786,6 +798,26 @@ def joystick_btn(sw_pin: int) -> bool:
     if _js_pi is None:
         return False
     return _js_pi.read(sw_pin) == 0   # active low
+
+
+def joystick_consume_press() -> bool:
+    """Atomically consume a latched joystick press (rising edge).
+
+    Returns True once per physical press. Safe to call from host/client main loops.
+    """
+    global _js_press_latched
+    with _js_lock:
+        if _js_press_latched:
+            _js_press_latched = False
+            return True
+        return False
+
+
+def joystick_clear_latch() -> None:
+    """Clear any latched press without consuming it (useful on state transitions)."""
+    global _js_press_latched
+    with _js_lock:
+        _js_press_latched = False
 
 
 # returns -1, 0, or +1 for a menu move on Y; re-arms after returning to neutral

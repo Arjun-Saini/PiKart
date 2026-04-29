@@ -19,7 +19,7 @@ from pikart_shared import (
     render_center_overlay_message, render_map, render_hud,
     send_msg, recv_msg,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_btn, joystick_menu_y, JS_SW,
+    joystick_consume_press, joystick_btn, joystick_menu_y, JS_SW,
 )
 
 DEBUG = 'debug' in sys.argv
@@ -256,7 +256,7 @@ while running:
         my = joystick_menu_y()
         if current_state == STATE_MENU and my != 0:
             menu_sel = 1 - menu_sel
-        if joystick_btn(JS_SW):
+        if joystick_consume_press():
             if current_state == STATE_MENU:
                 if menu_sel == 0:
                     log("Play selected (joystick)")

@@ -24,7 +24,7 @@ from pikart_shared import (
     render_center_overlay_message, render_map, render_hud,
     send_msg, recv_msg, aabb_mtv,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW,
+    joystick_consume_press, joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW,
 )
 
 DEBUG = 'debug' in sys.argv
@@ -357,7 +357,7 @@ while running:
             map_sel = (map_sel + my) % max(1, len(map_names))
         elif current_state == STATE_POST_RACE and mx != 0:
             post_sel = 1 - post_sel
-        if joystick_btn(JS_SW):
+        if joystick_consume_press():
             if current_state == STATE_MENU:
                 if menu_sel == 0:
                     error_msg = None; open_server_socket(); current_state = STATE_WAITING
@@ -474,7 +474,7 @@ while running:
             if pygame.key.get_pressed()[pygame.K_SPACE] and not p1.race_finished:
                 activate_consumable(p1, p2, shells, owner_index=0)
         else:
-            p1.throttle_input = joystick_throttle()
+            p1.throttle_input = -joystick_throttle()
             p1.steer_input    = joystick_steer()
             if joystick_btn(JS_SW) and not p1.race_finished:
                 activate_consumable(p1, p2, shells, owner_index=0)
