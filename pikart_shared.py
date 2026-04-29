@@ -42,6 +42,9 @@ PLAYER_ANG_ACCEL        = 10.0
 PLAYER_ANG_DAMP         = 5.0
 PLAYER_MAX_ANG_VEL      = 4.5
 
+MOTOR_GPIO       = 22
+RUMBLE_DURATION  = 0.12
+
 BOOST_TILE_DELTA         = 200.0
 SLOWDOWN_TILE_DELTA      = 200.0
 POWERUP_SIZE_SCALE       = 2.0
@@ -516,7 +519,12 @@ class Vehicle:
         self.world_x += self.vel_x * dt
         self.world_y += self.vel_y * dt
 
-    def resolve_collisions(self, game_map: 'Map', tri_masks: dict, player_mask: pygame.mask.Mask):
+    def resolve_collisions(self, game_map: 'Map', tri_masks: dict, player_mask: pygame.mask.Mask) -> bool:
+        """Resolve wall collisions via iterative MTV correction.
+
+        Returns True if at least one collision was corrected this call.
+        """
+        any_corrected = False
         for _ in range(MAX_COLLISION_PASSES):
             corrected = False
             for tile in game_map.get_tiles_in_rect(self.get_bounding_rect()):
@@ -538,10 +546,12 @@ class Vehicle:
                     self.vel_x -= b * nx
                     self.vel_y -= b * ny
                 corrected = True
+            any_corrected = any_corrected or corrected
             if not corrected:
                 break
         if abs(self.vel_x) < 1e-3: self.vel_x = 0.0
         if abs(self.vel_y) < 1e-3: self.vel_y = 0.0
+        return any_corrected
 
     def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
         size = int(PLAYER_SIZE * self.size_multiplier)
@@ -671,6 +681,68 @@ def render_hud(screen: pygame.Surface, viewport_rect: pygame.Rect,
     pw = max(s.get_width() + 6, w)
     powerup_box = pygame.Rect(viewport_rect.right - m - pw, lap_box.bottom + 3, pw, h)
     _text_box(screen, s, powerup_box)
+
+# =============================================================================
+# Vibration motor output (pigpio, GPIO 22)
+#
+# Wiring:
+#   GPIO 22 (Pin 15) -> 1k resistor -> NPN transistor Base
+#   Transistor Collector -> Motor (-)
+#   Motor (+) -> 3.3V or 5V
+#   Transistor Emitter -> GND
+#   Flyback diode across motor terminals
+# =============================================================================
+
+_motor_pi:       object = None   # pigpio.pi instance
+_motor_end_time: float  = 0.0    # monotonic timestamp when current pulse ends
+
+
+def motor_init():
+    """Connect pigpio and configure the motor GPIO pin as output."""
+    global _motor_pi
+    import pigpio as _pg
+    _motor_pi = _pg.pi()
+    if not _motor_pi.connected:
+        raise RuntimeError("pigpiod not running — start with: sudo pigpiod")
+    _motor_pi.set_mode(MOTOR_GPIO, _pg.OUTPUT)
+    _motor_pi.write(MOTOR_GPIO, 0)
+
+
+def motor_stop():
+    """Turn off the motor and disconnect pigpio."""
+    global _motor_pi
+    if _motor_pi is not None:
+        _motor_pi.write(MOTOR_GPIO, 0)
+        _motor_pi.stop()
+        _motor_pi = None
+
+
+def motor_rumble():
+    """Trigger a single fixed-duration rumble pulse.
+
+    Safe to call while a pulse is already running; the end time is only
+    extended if the new deadline is later than the current one.
+    """
+    import time as _t
+    global _motor_end_time
+    deadline = _t.monotonic() + RUMBLE_DURATION
+    if deadline > _motor_end_time:
+        _motor_end_time = deadline
+    if _motor_pi is not None:
+        _motor_pi.write(MOTOR_GPIO, 1)
+
+
+def motor_update():
+    """Turn the motor off once the pulse duration has elapsed.
+
+    Must be called once per frame from the main loop.
+    """
+    import time as _t
+    global _motor_end_time
+    if _motor_pi is not None and _motor_end_time > 0.0 and _t.monotonic() >= _motor_end_time:
+        _motor_pi.write(MOTOR_GPIO, 0)
+        _motor_end_time = 0.0
+
 
 # =============================================================================
 # Joystick input (MCP3008 via bit-banged SPI, pigpio)

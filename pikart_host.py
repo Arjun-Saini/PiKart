@@ -25,11 +25,13 @@ from pikart_shared import (
     send_msg, recv_msg, aabb_mtv,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
     joystick_consume_press, joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW,
+    motor_init, motor_stop, motor_rumble, motor_update,
 )
 
 DEBUG = 'debug' in sys.argv
 if not DEBUG:
     joystick_init()
+    motor_init()
 def log(msg: str):
     print(f"[HOST {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -45,10 +47,14 @@ GO_DISPLAY_DURATION  = 0.75
 # Host-only game logic
 # =============================================================================
 
-def resolve_vehicle_collision(a: Vehicle, b: Vehicle):
+def resolve_vehicle_collision(a: Vehicle, b: Vehicle) -> bool:
+    """Resolve an elastic collision between two vehicles.
+
+    Returns True if the vehicles were overlapping and a correction was applied.
+    """
     contact = aabb_mtv(a.get_bounding_rect(), b.get_bounding_rect())
     if contact is None:
-        return
+        return False
     nx, ny, pen = contact
     push = (pen + 0.05) * 0.5
     a.world_x += nx * push;  a.world_y += ny * push
@@ -56,9 +62,10 @@ def resolve_vehicle_collision(a: Vehicle, b: Vehicle):
     van = a.vel_x * nx + a.vel_y * ny
     vbn = b.vel_x * nx + b.vel_y * ny
     if van - vbn >= 0.0:
-        return
+        return True
     a.vel_x += (vbn - van) * nx;  a.vel_y += (vbn - van) * ny
     b.vel_x += (van - vbn) * nx;  b.vel_y += (van - vbn) * ny
+    return True
 
 
 def update_lap_progress(player: Vehicle, game_map: Map) -> bool:
@@ -235,6 +242,8 @@ input_q         = queue.Queue()
 state_q         = queue.Queue()
 last_client_input = {'throttle': 0, 'steer': 0, 'activate': False}
 p2_prev_activate = False
+p2_collided    = False
+p2_shell_hit   = False
 
 
 def open_server_socket():
@@ -272,6 +281,8 @@ def start_race(map_stem: str):
     p1_prev_lap  = 1
     shells   = []
     spawners = [PowerupSpawner(wx, wy) for wx, wy in game_map.spawner_positions]
+    global p2_collided, p2_shell_hit
+    p2_collided = p2_shell_hit = False
 
 
 def disconnect(reason: str | None):
@@ -306,8 +317,10 @@ def build_state_packet(game_state: str, countdown: float, go_display: float) -> 
                'heading': round(p2.heading, 5), 'lap': p2.max_lap,
                'place': p2.finish_place, 'powerup': p2.stored_powerup,
                'size': round(p2.size_multiplier, 4)},
-        'shells':   [sh.to_dict() for sh in shells],
-        'spawners': [sp.to_dict() for sp in spawners],
+        'shells':        [sh.to_dict() for sh in shells],
+        'spawners':      [sp.to_dict() for sp in spawners],
+        'p2_collided':   p2_collided,
+        'p2_shell_hit':  p2_shell_hit,
     }
 
 # =============================================================================
@@ -349,7 +362,7 @@ while running:
 
     # joystick menu navigation (skipped in debug mode since joystick not initialised)
     if not DEBUG and current_state in (STATE_MENU, STATE_MAP_SELECT, STATE_POST_RACE):
-        my = joystick_menu_y()
+        my = -joystick_menu_y()
         mx = joystick_menu_x()
         if current_state == STATE_MENU and my != 0:
             menu_sel = 1 - menu_sel
@@ -461,6 +474,11 @@ while running:
         continue
 
     # STATE: GAME
+    if not DEBUG:
+        motor_update()
+    p2_collided   = False
+    p2_shell_hit  = False
+
     if countdown_remaining > 0.0:
         countdown_remaining = max(0.0, countdown_remaining - dt)
         if countdown_remaining == 0.0:
@@ -478,6 +496,7 @@ while running:
             p1.steer_input    = joystick_steer()
             if joystick_btn(JS_SW) and not p1.race_finished:
                 activate_consumable(p1, p2, shells, owner_index=0)
+                motor_rumble()
 
         p2.throttle_input = float(last_client_input.get('throttle', 0))
         p2.steer_input    = float(last_client_input.get('steer', 0))
@@ -521,6 +540,10 @@ while running:
                 sh.vel_x -= 2.0 * vn_shell * nx
                 sh.vel_y -= 2.0 * vn_shell * ny
                 sh.heading = math.atan2(sh.vel_y, sh.vel_x)
+                if hit is p1 and not DEBUG:
+                    motor_rumble()
+                if hit is p2:
+                    p2_shell_hit = True
                 if sh.bounces_remaining <= 0:
                     continue
             surviving.append(sh)
@@ -546,9 +569,16 @@ while running:
             p1_total_timer += dt
             p1_lap_timer   += dt
 
-        p1.resolve_collisions(game_map, tri_masks, player_mask)
-        p2.resolve_collisions(game_map, tri_masks, player_mask)
-        resolve_vehicle_collision(p1, p2)
+        if p1.resolve_collisions(game_map, tri_masks, player_mask) and not DEBUG:
+            motor_rumble()
+        p2_wall_hit = p2.resolve_collisions(game_map, tri_masks, player_mask)
+        vehicle_hit = resolve_vehicle_collision(p1, p2)
+        if vehicle_hit:
+            p2_collided = True
+            if not DEBUG:
+                motor_rumble()
+        if p2_wall_hit:
+            p2_collided = True
 
         if p1.race_finished and p2.race_finished:
             current_state = STATE_POST_RACE
@@ -576,4 +606,5 @@ log("shutting down")
 close_server()
 if not DEBUG:
     joystick_stop()
+    motor_stop()
 sys.exit()

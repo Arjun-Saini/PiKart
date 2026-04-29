@@ -20,11 +20,13 @@ from pikart_shared import (
     send_msg, recv_msg,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
     joystick_consume_press, joystick_btn, joystick_menu_y, JS_SW,
+    motor_init, motor_stop, motor_rumble, motor_update,
 )
 
 DEBUG = 'debug' in sys.argv
 if not DEBUG:
     joystick_init()
+    motor_init()
 
 def log(msg: str):
     print(f"[CLIENT {time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -221,6 +223,11 @@ while running:
                     p2_mirror.apply_state(pkt['p2'])
                     latest_shells   = [Shell.from_dict(d) for d in pkt.get('shells', [])]
                     latest_spawners = [PowerupSpawner.from_dict(d) for d in pkt.get('spawners', [])]
+                    if not DEBUG:
+                        if pkt.get('p2_collided', False):
+                            motor_rumble()
+                        if pkt.get('p2_shell_hit', False):
+                            motor_rumble()
                     pkt_state = pkt.get('state')
                     if pkt_state == STATE_GAME and current_state == STATE_WAITING:
                         log("→ GAME"); current_state = STATE_GAME
@@ -247,6 +254,8 @@ while running:
             throttle = joystick_throttle()
             steer    = joystick_steer()
             activate = joystick_btn(JS_SW)
+            if activate:
+                motor_rumble()
         flush_queue(input_q)
         input_q.put({'throttle': throttle, 'steer': steer, 'activate': activate})
 
@@ -325,6 +334,9 @@ while running:
     camera.center_on(p2_mirror.world_x, p2_mirror.world_y)
     camera.heading = p2_mirror.heading
 
+    if not DEBUG:
+        motor_update()
+
     screen.fill(COLOR_BACKGROUND)
     render_map(screen, map_surface, camera, full_viewport,
                overlay_vehicles=[p1_mirror], overlay_shells=latest_shells, overlay_spawners=latest_spawners)
@@ -346,4 +358,5 @@ while running:
 pygame.quit()
 if not DEBUG:
     joystick_stop()
+    motor_stop()
 sys.exit()
