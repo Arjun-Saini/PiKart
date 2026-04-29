@@ -24,7 +24,7 @@ from pikart_shared import (
     render_center_overlay_message, render_map, render_hud,
     send_msg, recv_msg, aabb_mtv,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW1,
+    joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW,
 )
 
 DEBUG = 'debug' in sys.argv
@@ -357,7 +357,7 @@ while running:
             map_sel = (map_sel + my) % max(1, len(map_names))
         elif current_state == STATE_POST_RACE and mx != 0:
             post_sel = 1 - post_sel
-        if joystick_btn(JS_SW1):
+        if joystick_btn(JS_SW):
             if current_state == STATE_MENU:
                 if menu_sel == 0:
                     error_msg = None; open_server_socket(); current_state = STATE_WAITING
@@ -476,7 +476,7 @@ while running:
         else:
             p1.throttle_input = joystick_throttle()
             p1.steer_input    = joystick_steer()
-            if joystick_btn(JS_SW1) and not p1.race_finished:
+            if joystick_btn(JS_SW) and not p1.race_finished:
                 activate_consumable(p1, p2, shells, owner_index=0)
 
         p2.throttle_input = float(last_client_input.get('throttle', 0))
@@ -516,11 +516,8 @@ while running:
                 nx, ny   = math.cos(sh.heading), math.sin(sh.heading)
                 vn_hit   = hit.vel_x * nx + hit.vel_y * ny
                 vn_shell = sh.vel_x  * nx + sh.vel_y  * ny
-                if sh.shell_type == POWERUP_RED_SHELL:
-                    hit.vel_x = hit.vel_y = 0.0
-                else:
-                    hit.vel_x += (vn_shell - vn_hit) * nx
-                    hit.vel_y += (vn_shell - vn_hit) * ny
+                hit.vel_x += (vn_shell - vn_hit) * nx
+                hit.vel_y += (vn_shell - vn_hit) * ny
                 sh.vel_x -= 2.0 * vn_shell * nx
                 sh.vel_y -= 2.0 * vn_shell * ny
                 sh.heading = math.atan2(sh.vel_y, sh.vel_x)

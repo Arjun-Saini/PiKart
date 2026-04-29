@@ -14,7 +14,7 @@ import pygame
 # Constants
 # =============================================================================
 
-HOST_IP   = '127.0.0.1'
+HOST_IP   = '192.168.50.1'
 HOST_PORT = 55000
 
 VIEWPORT_WIDTH  = 320
@@ -686,8 +686,7 @@ _JS_CLK  = 5
 _JS_MOSI = 6
 _JS_MISO = 13
 _JS_CS   = 19
-JS_SW1   = 27   # exported so host/client can pass to joystick_btn_pressed
-JS_SW2   = 17
+JS_SW    = 27   # canonical joystick switch GPIO (matches joystick_test wiring)
 
 _JS_SPI_DELAY    = 0.00001   # 10 µs
 _JS_POLL_HZ      = 100
@@ -701,7 +700,6 @@ _js_pi       = None
 _js_lock     = threading.Lock()
 _js_x_raw    = _JS_CENTRE
 _js_y_raw    = _JS_CENTRE
-_js_btn:     dict[int, bool] = {}   # raw held state per pin
 _js_menu_x_armed = True
 _js_menu_y_armed = True
 _js_running  = False
@@ -738,16 +736,13 @@ def _js_to_float(raw: int) -> float:
 def _js_poll_loop():
     import time as _t
     interval = 1.0 / _JS_POLL_HZ
-    sw_pins = [JS_SW1, JS_SW2]
     global _js_x_raw, _js_y_raw
     while _js_running:
         x = _js_read_mcp3008(0)
         y = _js_read_mcp3008(1)
-        btn_states = {pin: (_js_pi.read(pin) == 0) for pin in sw_pins}
         with _js_lock:
             _js_x_raw = x
             _js_y_raw = y
-            _js_btn.update(btn_states)
         _t.sleep(interval)
 
 
@@ -760,10 +755,9 @@ def joystick_init():
     import pigpio as _pg
     for pin, mode in ((_JS_CLK, _pg.OUTPUT), (_JS_MOSI, _pg.OUTPUT),
                       (_JS_MISO, _pg.INPUT), (_JS_CS, _pg.OUTPUT),
-                      (JS_SW1, _pg.INPUT), (JS_SW2, _pg.INPUT)):
+                      (JS_SW, _pg.INPUT)):
         _js_pi.set_mode(pin, mode)
-    _js_pi.set_pull_up_down(JS_SW1, _pg.PUD_UP)
-    _js_pi.set_pull_up_down(JS_SW2, _pg.PUD_UP)
+    _js_pi.set_pull_up_down(JS_SW, _pg.PUD_UP)
     _js_pi.write(_JS_CS, 1)
     _js_pi.write(_JS_CLK, 0)
     _js_running = True
