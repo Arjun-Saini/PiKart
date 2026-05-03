@@ -12,67 +12,77 @@ import pygame
 from pikart_shared import (
     HOST_PORT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, FPS,
     TOTAL_LAPS, MAX_PHYSICS_DT, COLOR_BACKGROUND, COLOR_PLAYER, COLOR_PLAYER2,
-    COLOR_TRACK_P1, COLOR_TRACK_P2,
-    COLOR_ERROR, TILE_TYPE_INFO, TILE_SIZE, PLAYER_SIZE,
+    COLOR_TRACK_P1, COLOR_TRACK_P2, COLOR_WHITE, COLOR_ERROR,
+    TILE_TYPE_INFO, TILE_SIZE, PLAYER_SIZE,
     STATE_MENU, STATE_WAITING, STATE_GAME, STATE_POST_RACE,
     Map, Camera, Vehicle, Shell, PowerupSpawner,
-    _draw_player_sprite_static,
+    draw_player_sprite,
     POWERUP_SIZE_GROW, POWERUP_SIZE_SHRINK, POWERUP_GREEN_SHELL, POWERUP_RED_SHELL,
     POWERUP_SIZE_SCALE, POWERUP_SIZE_DURATION, SHELL_SIZE,
-    BOOST_TILE_DELTA, SLOWDOWN_TILE_DELTA, TRACK_HISTORY_INTERVAL,
+    BOOST_TILE_DELTA, SLOWDOWN_TILE_DELTA, COLLISION_SLOP,
     DISCONNECTED, flush_queue, net_send_thread, net_recv_thread,
-    _blit_c, _btn, make_button_rect,
+    blit_centered, button, make_button_rect,
     render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
     build_minimap_surface, render_minimap,
-    draw_track_history,
-    send_msg, recv_msg, aabb_mtv,
+    send_msg, aabb_mtv, vehicle_to_dict,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
     joystick_consume_press, joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW,
     motor_init, motor_stop, motor_rumble, motor_update,
 )
 
-DEBUG   = 'debug' in sys.argv
+DEBUG = 'debug' in sys.argv
 HOST_IP = '127.0.0.1' if DEBUG else '192.168.50.1'
+
 if not DEBUG:
     joystick_init()
     motor_init()
+
+
 def log(msg: str):
     print(f"[HOST {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
 
 # =============================================================================
 # Host-only constants
 # =============================================================================
 
-STATE_MAP_SELECT     = 'map_select'
-COUNTDOWN_DURATION   = 3.0
-GO_DISPLAY_DURATION  = 0.75
+STATE_MAP_SELECT = 'map_select'
+COUNTDOWN_DURATION = 3.0
+GO_DISPLAY_DURATION = 0.75
+
+MAP_ROW_WIDTH = 180
+MAP_ROW_HEIGHT = 26
+MAP_ROW_TOP = 60
+MAP_ROW_SPACING = 34
 
 # =============================================================================
 # Host-only game logic
 # =============================================================================
 
+# resolves an elastic collision between two vehicles; returns True if a correction was applied
 def resolve_vehicle_collision(a: Vehicle, b: Vehicle) -> bool:
-    """Resolve an elastic collision between two vehicles.
-
-    Returns True if the vehicles were overlapping and a correction was applied.
-    """
     contact = aabb_mtv(a.get_bounding_rect(), b.get_bounding_rect())
     if contact is None:
         return False
     nx, ny, pen = contact
-    push = (pen + 0.05) * 0.5
-    a.world_x += nx * push;  a.world_y += ny * push
-    b.world_x -= nx * push;  b.world_y -= ny * push
+    push = (pen + COLLISION_SLOP) * 0.5
+    a.world_x += nx * push
+    a.world_y += ny * push
+    b.world_x -= nx * push
+    b.world_y -= ny * push
     van = a.vel_x * nx + a.vel_y * ny
     vbn = b.vel_x * nx + b.vel_y * ny
     if van - vbn >= 0.0:
         return True
-    a.vel_x += (vbn - van) * nx;  a.vel_y += (vbn - van) * ny
-    b.vel_x += (van - vbn) * nx;  b.vel_y += (van - vbn) * ny
+    a.vel_x += (vbn - van) * nx
+    a.vel_y += (vbn - van) * ny
+    b.vel_x += (van - vbn) * nx
+    b.vel_y += (van - vbn) * ny
     return True
 
 
+# updates a player's lap counter when they cross the finish line; returns True if the player just finished the race
 def update_lap_progress(player: Vehicle, game_map: Map) -> bool:
     if player.race_finished:
         return False
@@ -100,12 +110,15 @@ def update_lap_progress(player: Vehicle, game_map: Map) -> bool:
     return False
 
 
+# applies passive boost/slowdown effects when a vehicle drives onto a powerup tile
 def apply_passive_tile_effects(vehicle: Vehicle, game_map: Map):
     rect = vehicle.get_bounding_rect()
     on_p1 = on_p2 = False
     for tile in game_map.get_tiles_in_rect(rect):
-        if   tile.tile_type == 'powerup1' and rect.colliderect(tile.world_rect): on_p1 = True
-        elif tile.tile_type == 'powerup2' and rect.colliderect(tile.world_rect): on_p2 = True
+        if tile.tile_type == 'powerup1' and rect.colliderect(tile.world_rect):
+            on_p1 = True
+        elif tile.tile_type == 'powerup2' and rect.colliderect(tile.world_rect):
+            on_p2 = True
     if on_p1 and not vehicle.on_powerup1:
         vehicle.vel_x += math.cos(vehicle.heading) * BOOST_TILE_DELTA
         vehicle.vel_y += math.sin(vehicle.heading) * BOOST_TILE_DELTA
@@ -119,7 +132,7 @@ def apply_passive_tile_effects(vehicle: Vehicle, game_map: Map):
     vehicle.on_powerup2 = on_p2
 
 
-# add new powerup types with an elif branch here
+# consumes the vehicle's stored powerup and applies its effect; spawns a shell if a shell type
 def activate_consumable(vehicle: Vehicle, opponent: Vehicle, shells: list, owner_index: int):
     ptype = vehicle.stored_powerup
     if ptype is None:
@@ -127,63 +140,60 @@ def activate_consumable(vehicle: Vehicle, opponent: Vehicle, shells: list, owner
     vehicle.stored_powerup = None
     if ptype == POWERUP_SIZE_GROW:
         vehicle.size_multiplier = POWERUP_SIZE_SCALE
-        vehicle.size_timer      = POWERUP_SIZE_DURATION
+        vehicle.size_timer = POWERUP_SIZE_DURATION
     elif ptype == POWERUP_SIZE_SHRINK:
         vehicle.size_multiplier = 1.0 / POWERUP_SIZE_SCALE
-        vehicle.size_timer      = POWERUP_SIZE_DURATION
+        vehicle.size_timer = POWERUP_SIZE_DURATION
     elif ptype in (POWERUP_GREEN_SHELL, POWERUP_RED_SHELL):
         is_green = ptype == POWERUP_GREEN_SHELL
-        h = (vehicle.heading + math.pi) % (2*math.pi) if is_green else vehicle.heading
-        shells.append(Shell(ptype,
-                            vehicle.world_x + math.cos(h) * (PLAYER_SIZE + SHELL_SIZE),
-                            vehicle.world_y + math.sin(h) * (PLAYER_SIZE + SHELL_SIZE),
-                            h, owner_index))
+        h = (vehicle.heading + math.pi) % (2 * math.pi) if is_green else vehicle.heading
+        spawn_x = vehicle.world_x + math.cos(h) * (PLAYER_SIZE + SHELL_SIZE)
+        spawn_y = vehicle.world_y + math.sin(h) * (PLAYER_SIZE + SHELL_SIZE)
+        shells.append(Shell(ptype, spawn_x, spawn_y, h, owner_index))
 
 # =============================================================================
 # Host-only render
 # =============================================================================
 
-def render_map_select(screen: pygame.Surface, map_names: list[str], map_row_rects: list[pygame.Rect],
-                      title_font: pygame.font.Font, button_font: pygame.font.Font, selected_idx: int = 0):
+# renders the map-selection screen with one button per available map
+def render_map_select(screen: pygame.Surface, map_names: list[str],
+                      map_row_rects: list[pygame.Rect],
+                      title_font: pygame.font.Font, button_font: pygame.font.Font,
+                      selected_idx: int = 0):
     screen.fill((25, 25, 25))
-    _blit_c(screen, title_font.render('Select Map', True, (255,255,255)), (VIEWPORT_WIDTH//2, 20))
+    blit_centered(screen, title_font.render('Select Map', True, COLOR_WHITE),
+                  (VIEWPORT_WIDTH // 2, 20))
     for i, (name, rect) in enumerate(zip(map_names, map_row_rects)):
-        _btn(screen, rect, name, button_font, selected_idx == i,
-             bg=(50,50,80), bg_h=(80,80,130), fg=(255,255,255), border=(120,120,180))
+        button(screen, rect, name, button_font, selected_idx == i)
     if not map_names:
-        _blit_c(screen, button_font.render('No .txt maps found.', True, COLOR_ERROR),
-                (VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//2))
+        blit_centered(screen, button_font.render('No .txt maps found.', True, COLOR_ERROR),
+                      (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2))
 
 
+# returns the sorted basenames (without extension) of all .txt map files in the working directory
 def scan_map_files() -> list[str]:
-    return sorted(os.path.splitext(n)[0] for n in os.listdir('.') if n.lower().endswith('.txt') and os.path.isfile(n))
+    return sorted(os.path.splitext(n)[0] for n in os.listdir('.')
+                  if n.lower().endswith('.txt') and os.path.isfile(n))
 
 
-def build_map_row_rects(count: int) -> list[pygame.Rect]:
-    return [make_button_rect(VIEWPORT_WIDTH//2, 60 + i*34, width=180, height=26) for i in range(count)]
-
-
+# builds the triangular wall masks (per tri tile type) and the player-sized solid mask
 def build_masks() -> tuple[dict, pygame.mask.Mask]:
     def tri_mask(pts):
         surf = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
         m = TILE_SIZE - 1
-        pygame.draw.polygon(surf, (255,255,255), [(int(px*m), int(py*m)) for px, py in pts])
+        pygame.draw.polygon(surf, COLOR_WHITE, [(int(px * m), int(py * m)) for px, py in pts])
         return pygame.mask.from_surface(surf)
-    tri_masks = {t: tri_mask(info['points']) for t, info in TILE_TYPE_INFO.items() if info.get('shape') == 'tri'}
+    tri_masks = {t: tri_mask(info['points'])
+                 for t, info in TILE_TYPE_INFO.items() if info.get('shape') == 'tri'}
     surf = pygame.Surface((PLAYER_SIZE, PLAYER_SIZE), pygame.SRCALPHA)
-    pygame.draw.rect(surf, (255,255,255), surf.get_rect())
+    pygame.draw.rect(surf, COLOR_WHITE, surf.get_rect())
     return tri_masks, pygame.mask.from_surface(surf)
 
 # =============================================================================
 # Network
 # =============================================================================
 
-def start_net_threads(conn: socket.socket, input_q: queue.Queue, state_q: queue.Queue):
-    log("starting net threads")
-    threading.Thread(target=net_send_thread, args=(conn, state_q, input_q, log), daemon=True).start()
-    threading.Thread(target=net_recv_thread, args=(conn, input_q, input_q, state_q, log), daemon=True).start()
-
-
+# accepts one connection on the server socket and pushes the result onto result_q
 def accept_thread(server_sock: socket.socket, result_q: queue.Queue):
     log("accept_thread blocking")
     try:
@@ -212,46 +222,52 @@ button_font    = pygame.font.SysFont(None, 22)
 tri_masks, player_mask = build_masks()
 full_viewport = pygame.Rect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
 
-play_button_rect     = make_button_rect(VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//2 - 27)
-quit_button_rect     = make_button_rect(VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//2 + 27)
-post_race_again_rect = make_button_rect(VIEWPORT_WIDTH//2 - 60, VIEWPORT_HEIGHT//2 + 10, width=100, height=30)
-post_race_menu_rect  = make_button_rect(VIEWPORT_WIDTH//2 + 60, VIEWPORT_HEIGHT//2 + 10, width=100, height=30)
+play_button_rect     = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 27)
+quit_button_rect     = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 + 27)
+post_race_again_rect = make_button_rect(VIEWPORT_WIDTH // 2 - 60, VIEWPORT_HEIGHT // 2 + 10,
+                                        width=100, height=30)
+post_race_menu_rect  = make_button_rect(VIEWPORT_WIDTH // 2 + 60, VIEWPORT_HEIGHT // 2 + 10,
+                                        width=100, height=30)
 
 current_state = STATE_MENU
 error_msg: str | None = None
-menu_sel     = 0   # 0=Play, 1=Quit
-map_sel      = 0   # index into map_names
-post_sel     = 0   # 0=Play Again, 1=Exit to Menu
+# 0=Play, 1=Quit
+menu_sel = 0
+# index into map_names
+map_sel = 0
+# 0=Play Again, 1=Exit to Menu
+post_sel = 0
 
-game_map: Map | None               = None
+game_map: Map | None = None
 map_surface: pygame.Surface | None = None
 minimap_surface: pygame.Surface | None = None
 p1: Vehicle | None = None
 p2: Vehicle | None = None
 camera: Camera | None = None
-map_names:     list[str]         = []
+map_names: list[str] = []
 map_row_rects: list[pygame.Rect] = []
 
-countdown_remaining  = 0.0
+countdown_remaining = 0.0
 go_display_remaining = 0.0
-next_finish_place    = 1
-shells:   list[Shell]          = []
+next_finish_place = 1
+shells: list[Shell] = []
 spawners: list[PowerupSpawner] = []
 p1_total_timer = 0.0
-p1_lap_timer   = 0.0
-p1_prev_lap    = 1
+p1_lap_timer = 0.0
+p1_prev_lap = 1
 
 server_sock: socket.socket | None = None
-conn_sock:   socket.socket | None = None
+conn_sock: socket.socket | None = None
 accept_result_q = queue.Queue()
-input_q         = queue.Queue()
-state_q         = queue.Queue()
+input_q = queue.Queue()
+state_q = queue.Queue()
 last_client_input = {'throttle': 0, 'steer': 0, 'activate': False}
 p2_prev_activate = False
-p2_collided    = False
-p2_shell_hit   = False
+p2_collided = False
+p2_shell_hit = False
 
 
+# opens a listening socket and starts the accept thread
 def open_server_socket():
     global server_sock
     log(f"opening server socket on {HOST_IP}:{HOST_PORT}")
@@ -263,35 +279,37 @@ def open_server_socket():
     threading.Thread(target=accept_thread, args=(server_sock, accept_result_q), daemon=True).start()
 
 
+# loads the chosen map and resets all per-race state
 def start_race(map_stem: str):
     global game_map, map_surface, minimap_surface, p1, p2, camera
     global countdown_remaining, go_display_remaining, next_finish_place
     global p1_total_timer, p1_lap_timer, shells, spawners, p1_prev_lap
-    game_map        = Map(map_stem + '.txt')
-    map_surface     = game_map.build_surface()
+    global p2_collided, p2_shell_hit
+    game_map = Map(map_stem + '.txt')
+    map_surface = game_map.build_surface()
     minimap_surface = build_minimap_surface(map_surface, game_map)
     p1 = Vehicle(*game_map.player1_spawn,
-                 throttle_forward_key=pygame.K_UP,    throttle_back_key=pygame.K_DOWN,
-                 steer_left_key=pygame.K_LEFT,        steer_right_key=pygame.K_RIGHT,
+                 throttle_forward_key=pygame.K_UP, throttle_back_key=pygame.K_DOWN,
+                 steer_left_key=pygame.K_LEFT, steer_right_key=pygame.K_RIGHT,
                  color=COLOR_PLAYER)
     p2 = Vehicle(*game_map.player2_spawn,
-                 throttle_forward_key=pygame.K_w,     throttle_back_key=pygame.K_s,
-                 steer_left_key=pygame.K_a,           steer_right_key=pygame.K_d,
+                 throttle_forward_key=pygame.K_w, throttle_back_key=pygame.K_s,
+                 steer_left_key=pygame.K_a, steer_right_key=pygame.K_d,
                  color=COLOR_PLAYER2)
     camera = Camera(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
     camera.center_on(p1.world_x, p1.world_y)
-    camera.heading       = p1.heading
-    countdown_remaining  = COUNTDOWN_DURATION
+    camera.heading = p1.heading
+    countdown_remaining = COUNTDOWN_DURATION
     go_display_remaining = 0.0
-    next_finish_place    = 1
+    next_finish_place = 1
     p1_total_timer = p1_lap_timer = 0.0
-    p1_prev_lap  = 1
-    shells   = []
+    p1_prev_lap = 1
+    shells = []
     spawners = [PowerupSpawner(wx, wy) for wx, wy in game_map.spawner_positions]
-    global p2_collided, p2_shell_hit
     p2_collided = p2_shell_hit = False
 
 
+# closes the connection and signals the network threads; clears error_msg via the reason argument
 def disconnect(reason: str | None):
     global conn_sock, current_state, error_msg
     log(f"disconnect: {reason!r}")
@@ -301,10 +319,11 @@ def disconnect(reason: str | None):
         conn_sock = None
     state_q.put(DISCONNECTED)
     flush_queue(input_q)
-    error_msg     = reason
+    error_msg = reason
     current_state = STATE_MENU
 
 
+# closes the listening socket if it's open
 def close_server():
     global server_sock
     if server_sock is not None:
@@ -313,22 +332,52 @@ def close_server():
         server_sock = None
 
 
-def build_state_packet(game_state: str, countdown: float, go_display: float, track: bool = False) -> dict:
+# disconnects from the client and tears down the listening socket; returns to the menu
+def return_to_menu():
+    disconnect(None)
+    close_server()
+
+
+# starts the connection-accepting flow from the menu screen
+def begin_play():
+    global current_state, error_msg
+    error_msg = None
+    open_server_socket()
+    current_state = STATE_WAITING
+
+
+# starts a race or sends the client back to map selection for a replay
+def begin_race(map_stem: str | None, replay: bool):
+    global current_state, map_names, map_row_rects, map_sel
+    if replay:
+        state_q.put({'replay': True})
+        map_names = scan_map_files()
+        map_row_rects = [make_button_rect(VIEWPORT_WIDTH // 2,
+                                          MAP_ROW_TOP + i * MAP_ROW_SPACING,
+                                          width=MAP_ROW_WIDTH, height=MAP_ROW_HEIGHT)
+                         for i in range(len(map_names))]
+        map_sel = 0
+        current_state = STATE_MAP_SELECT
+    else:
+        send_msg(conn_sock, {'map': map_stem})
+        start_race(map_stem)
+        current_state = STATE_GAME
+
+
+# builds the per-frame state packet sent to the client
+def build_state_packet(game_state: str, countdown: float, go_display: float,
+                       track: bool = False) -> dict:
     return {
-        'state': game_state, 'countdown': round(countdown, 4), 'go': go_display > 0.0,
+        'state': game_state,
+        'countdown': round(countdown, 4),
+        'go': go_display > 0.0,
         'track': track,
-        'p1': {'x': round(p1.world_x, 3), 'y': round(p1.world_y, 3),
-               'heading': round(p1.heading, 5), 'lap': p1.max_lap,
-               'place': p1.finish_place, 'powerup': p1.stored_powerup,
-               'size': round(p1.size_multiplier, 4)},
-        'p2': {'x': round(p2.world_x, 3), 'y': round(p2.world_y, 3),
-               'heading': round(p2.heading, 5), 'lap': p2.max_lap,
-               'place': p2.finish_place, 'powerup': p2.stored_powerup,
-               'size': round(p2.size_multiplier, 4)},
-        'shells':        [sh.to_dict() for sh in shells],
-        'spawners':      [sp.to_dict() for sp in spawners],
-        'p2_collided':   p2_collided,
-        'p2_shell_hit':  p2_shell_hit,
+        'p1': vehicle_to_dict(p1),
+        'p2': vehicle_to_dict(p2),
+        'shells': [sh.to_dict() for sh in shells],
+        'spawners': [sp.to_dict() for sp in spawners],
+        'p2_collided': p2_collided,
+        'p2_shell_hit': p2_shell_hit,
     }
 
 # =============================================================================
@@ -339,6 +388,7 @@ running = True
 while running:
     dt = min(clock.tick(FPS) / 1000.0, MAX_PHYSICS_DT)
 
+    # accept a pending client connection if one is ready
     if current_state == STATE_WAITING:
         try:
             result = accept_result_q.get_nowait()
@@ -349,14 +399,21 @@ while running:
                 conn_sock = result
                 flush_queue(input_q)
                 flush_queue(state_q)
-                start_net_threads(conn_sock, input_q, state_q)
+                threading.Thread(target=net_send_thread,
+                                 args=(conn_sock, state_q, input_q, log), daemon=True).start()
+                threading.Thread(target=net_recv_thread,
+                                 args=(conn_sock, input_q, input_q, state_q, log), daemon=True).start()
                 state_q.put({'connected': True})
-                map_names     = scan_map_files()
-                map_row_rects = build_map_row_rects(len(map_names))
+                map_names = scan_map_files()
+                map_row_rects = [make_button_rect(VIEWPORT_WIDTH // 2,
+                                                  MAP_ROW_TOP + i * MAP_ROW_SPACING,
+                                                  width=MAP_ROW_WIDTH, height=MAP_ROW_HEIGHT)
+                                 for i in range(len(map_names))]
                 current_state = STATE_MAP_SELECT
         except queue.Empty:
             pass
 
+    # drain the latest client input packet
     if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT):
         try:
             item = input_q.get_nowait()
@@ -368,7 +425,7 @@ while running:
         except queue.Empty:
             pass
 
-    # joystick menu navigation (skipped in debug mode since joystick not initialised)
+    # joystick menu navigation (skipped in debug mode since joystick is not initialised)
     if not DEBUG and current_state in (STATE_MENU, STATE_MAP_SELECT, STATE_POST_RACE):
         my = -joystick_menu_y()
         mx = joystick_menu_x()
@@ -381,20 +438,18 @@ while running:
         if joystick_consume_press():
             if current_state == STATE_MENU:
                 if menu_sel == 0:
-                    error_msg = None; open_server_socket(); current_state = STATE_WAITING
+                    begin_play()
                 else:
                     running = False
             elif current_state == STATE_MAP_SELECT and map_names:
-                send_msg(conn_sock, {'map': map_names[map_sel]})
-                start_race(map_names[map_sel]); current_state = STATE_GAME
+                begin_race(map_names[map_sel], replay=False)
             elif current_state == STATE_POST_RACE:
                 if post_sel == 0:
-                    state_q.put({'replay': True})
-                    map_names = scan_map_files(); map_row_rects = build_map_row_rects(len(map_names))
-                    map_sel = 0; current_state = STATE_MAP_SELECT
+                    begin_race(None, replay=True)
                 else:
-                    disconnect(None); error_msg = None; close_server()
+                    return_to_menu()
 
+    # keyboard and mouse event handling
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -402,92 +457,90 @@ while running:
             key = event.key
             if key == pygame.K_ESCAPE:
                 if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT, STATE_WAITING):
-                    disconnect(None); error_msg = None; close_server()
+                    return_to_menu()
                 else:
                     running = False
-
             elif current_state == STATE_MENU:
                 if key in (pygame.K_UP, pygame.K_DOWN):
                     menu_sel = 1 - menu_sel
                 elif key == pygame.K_SPACE:
                     if menu_sel == 0:
-                        error_msg = None; open_server_socket(); current_state = STATE_WAITING
+                        begin_play()
                     else:
                         running = False
-
             elif current_state == STATE_MAP_SELECT:
                 if key == pygame.K_UP:
                     map_sel = (map_sel - 1) % max(1, len(map_names))
                 elif key == pygame.K_DOWN:
                     map_sel = (map_sel + 1) % max(1, len(map_names))
                 elif key == pygame.K_SPACE and map_names:
-                    send_msg(conn_sock, {'map': map_names[map_sel]})
-                    start_race(map_names[map_sel])
-                    current_state = STATE_GAME
-
+                    begin_race(map_names[map_sel], replay=False)
             elif current_state == STATE_POST_RACE:
                 if key in (pygame.K_LEFT, pygame.K_RIGHT):
                     post_sel = 1 - post_sel
                 elif key == pygame.K_SPACE:
                     if post_sel == 0:
-                        state_q.put({'replay': True})
-                        map_names = scan_map_files(); map_row_rects = build_map_row_rects(len(map_names))
-                        map_sel = 0; current_state = STATE_MAP_SELECT
+                        begin_race(None, replay=True)
                     else:
-                        disconnect(None); error_msg = None; close_server()
-
+                        return_to_menu()
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = event.pos
             if current_state == STATE_MENU:
                 if play_button_rect.collidepoint(pos):
-                    error_msg = None; open_server_socket(); current_state = STATE_WAITING
+                    begin_play()
                 elif quit_button_rect.collidepoint(pos):
                     running = False
             elif current_state == STATE_MAP_SELECT:
                 for i, rect in enumerate(map_row_rects):
                     if rect.collidepoint(pos):
-                        send_msg(conn_sock, {'map': map_names[i]})
-                        start_race(map_names[i])
-                        current_state = STATE_GAME
+                        begin_race(map_names[i], replay=False)
                         break
             elif current_state == STATE_POST_RACE:
                 if post_race_again_rect.collidepoint(pos):
-                    state_q.put({'replay': True})
-                    map_names = scan_map_files(); map_row_rects = build_map_row_rects(len(map_names))
-                    map_sel = 0; current_state = STATE_MAP_SELECT
+                    begin_race(None, replay=True)
                 elif post_race_menu_rect.collidepoint(pos):
-                    disconnect(None); error_msg = None; close_server()
+                    return_to_menu()
 
+    # menu / waiting / map-select / post-race rendering paths
     if current_state == STATE_MENU:
-        render_menu(screen, play_button_rect, quit_button_rect, title_font, button_font, error_msg, menu_sel)
-        pygame.display.flip(); continue
+        render_menu(screen, play_button_rect, quit_button_rect,
+                    title_font, button_font, error_msg, menu_sel)
+        pygame.display.flip()
+        continue
 
     if current_state == STATE_WAITING:
         render_status_screen(screen, title_font, button_font, 'Waiting for player 2...')
-        pygame.display.flip(); continue
+        pygame.display.flip()
+        continue
 
     if current_state == STATE_MAP_SELECT:
-        render_map_select(screen, map_names, map_row_rects, title_font, button_font, map_sel)
-        pygame.display.flip(); continue
+        render_map_select(screen, map_names, map_row_rects,
+                          title_font, button_font, map_sel)
+        pygame.display.flip()
+        continue
 
     if current_state == STATE_POST_RACE:
         screen.fill(COLOR_BACKGROUND)
         render_map(screen, map_surface, camera, full_viewport, overlay_vehicles=[p2])
-        _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p1.color, p1.size_multiplier)
+        draw_player_sprite(screen, full_viewport.centerx, full_viewport.centery,
+                           p1.color, p1.size_multiplier)
         render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
-                   p1_total_timer, p1_lap_timer, p1.finish_place, hud_font, place_font, p1.stored_powerup)
+                   p1_total_timer, p1_lap_timer, p1.finish_place,
+                   hud_font, place_font, p1.stored_powerup)
         render_minimap(screen, minimap_surface, [p1, p2], game_map, full_viewport)
-        render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font, post_sel)
+        render_post_race(screen, post_race_again_rect, post_race_menu_rect,
+                         title_font, button_font, post_sel)
         pygame.display.flip()
         state_q.put(build_state_packet(STATE_POST_RACE, 0.0, 0.0))
         continue
 
-    # STATE: GAME
+    # state: STATE_GAME
     if not DEBUG:
         motor_update()
-    p2_collided   = False
-    p2_shell_hit  = False
+    p2_collided = False
+    p2_shell_hit = False
 
+    # countdown / go-banner timers
     if countdown_remaining > 0.0:
         countdown_remaining = max(0.0, countdown_remaining - dt)
         if countdown_remaining == 0.0:
@@ -497,34 +550,38 @@ while running:
 
     track_record = False
     if countdown_remaining <= 0.0:
+        # input: read p1 from joystick or debug keyboard, p2 from latest network packet
         if DEBUG:
             p1.handle_input()
             if pygame.key.get_pressed()[pygame.K_SPACE] and not p1.race_finished:
                 activate_consumable(p1, p2, shells, owner_index=0)
         else:
             p1.throttle_input = -joystick_throttle()
-            p1.steer_input    = joystick_steer()
+            p1.steer_input = joystick_steer()
             if joystick_btn(JS_SW) and not p1.race_finished:
                 activate_consumable(p1, p2, shells, owner_index=0)
                 motor_rumble()
 
         p2.throttle_input = float(last_client_input.get('throttle', 0))
-        p2.steer_input    = float(last_client_input.get('steer', 0))
+        p2.steer_input = float(last_client_input.get('steer', 0))
         p2_act = bool(last_client_input.get('activate', False))
         if p2_act and not p2_prev_activate and not p2.race_finished:
             activate_consumable(p2, p1, shells, owner_index=1)
         p2_prev_activate = p2_act
 
+        # physics + tile effects
         p1.update_physics(dt)
         p2.update_physics(dt)
         apply_passive_tile_effects(p1, game_map)
         apply_passive_tile_effects(p2, game_map)
 
+        # spawners: tick cooldowns and let either vehicle collect
         for sp in spawners:
             sp.update(dt)
             sp.try_collect(p1)
             sp.try_collect(p2)
 
+        # shells: advance, bounce off walls, and resolve hits against the target vehicle
         surviving = []
         for sh in shells:
             target = p2 if sh.owner_index == 0 else p1
@@ -542,9 +599,9 @@ while running:
             hit = p2 if sh.owner_index == 0 else p1
             if sh.hits_vehicle(hit):
                 sh.bounces_remaining -= 1
-                nx, ny   = math.cos(sh.heading), math.sin(sh.heading)
-                vn_hit   = hit.vel_x * nx + hit.vel_y * ny
-                vn_shell = sh.vel_x  * nx + sh.vel_y  * ny
+                nx, ny = math.cos(sh.heading), math.sin(sh.heading)
+                vn_hit = hit.vel_x * nx + hit.vel_y * ny
+                vn_shell = sh.vel_x * nx + sh.vel_y * ny
                 hit.vel_x += (vn_shell - vn_hit) * nx
                 hit.vel_y += (vn_shell - vn_hit) * ny
                 sh.vel_x -= 2.0 * vn_shell * nx
@@ -566,19 +623,22 @@ while running:
                 v.vel_x = v.vel_y = 0.0
         shells = [sh for sh in shells if game_map.is_interior(sh.world_x, sh.world_y)]
 
+        # lap progress and finishing place assignment
         for p, fin in ((p1, update_lap_progress(p1, game_map)),
                        (p2, update_lap_progress(p2, game_map))):
             if fin:
                 p.finish_place = next_finish_place
                 next_finish_place += 1
 
+        # p1 timers (only while still racing)
         if not p1.race_finished:
             if p1.max_lap > p1_prev_lap:
                 p1_lap_timer = 0.0
-                p1_prev_lap  = p1.max_lap
+                p1_prev_lap = p1.max_lap
             p1_total_timer += dt
-            p1_lap_timer   += dt
+            p1_lap_timer += dt
 
+        # wall and vehicle-vehicle collisions; rumble on any p1 collision
         if p1.resolve_collisions(game_map, tri_masks, player_mask) and not DEBUG:
             motor_rumble()
         p2_wall_hit = p2.resolve_collisions(game_map, tri_masks, player_mask)
@@ -590,40 +650,39 @@ while running:
         if p2_wall_hit:
             p2_collided = True
 
+        # transition to post-race once both players have finished
         if p1.race_finished and p2.race_finished:
             current_state = STATE_POST_RACE
 
-        track_record = False
-        p1.track_frame_counter += 1
-        if p1.track_frame_counter >= TRACK_HISTORY_INTERVAL:
-            p1.track_frame_counter = 0
-            p1.track_history.append((p1.world_x, p1.world_y))
-            track_record = True
-        p2.track_frame_counter += 1
-        if p2.track_frame_counter >= TRACK_HISTORY_INTERVAL:
-            p2.track_frame_counter = 0
-            p2.track_history.append((p2.world_x, p2.world_y))
-            track_record = True
+        # per-frame track history sampling
+        track_record = p1.tick_track_history() or p2.tick_track_history()
 
+    # camera follows p1 with car-aligned heading
     camera.center_on(p1.world_x, p1.world_y)
     camera.heading = p1.heading
 
+    # render
     screen.fill(COLOR_BACKGROUND)
     render_map(screen, map_surface, camera, full_viewport,
                overlay_vehicles=[p2], overlay_shells=shells, overlay_spawners=spawners,
-               track_histories=[(p1.track_history, COLOR_TRACK_P1), (p2.track_history, COLOR_TRACK_P2)])
-    _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p1.color, p1.size_multiplier)
+               track_histories=[(p1.track_history, COLOR_TRACK_P1),
+                                (p2.track_history, COLOR_TRACK_P2)])
+    draw_player_sprite(screen, full_viewport.centerx, full_viewport.centery,
+                       p1.color, p1.size_multiplier)
     render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
-               p1_total_timer, p1_lap_timer, p1.finish_place, hud_font, place_font, p1.stored_powerup)
+               p1_total_timer, p1_lap_timer, p1.finish_place,
+               hud_font, place_font, p1.stored_powerup)
     render_minimap(screen, minimap_surface, [p1, p2], game_map, full_viewport)
 
     if countdown_remaining > 0.0:
-        render_center_overlay_message(screen, str(int(math.ceil(countdown_remaining))), countdown_font)
+        render_center_overlay_message(screen, str(int(math.ceil(countdown_remaining))),
+                                      countdown_font)
     elif go_display_remaining > 0.0:
         render_center_overlay_message(screen, 'GO!', countdown_font)
 
     pygame.display.flip()
-    state_q.put(build_state_packet(STATE_GAME, countdown_remaining, go_display_remaining, track_record))
+    state_q.put(build_state_packet(STATE_GAME, countdown_remaining, go_display_remaining,
+                                   track_record))
 
 pygame.quit()
 log("shutting down")
