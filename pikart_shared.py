@@ -1,4 +1,5 @@
 from __future__ import annotations
+import collections
 import json
 import math
 import os
@@ -47,6 +48,8 @@ RUMBLE_DURATION  = 0.12
 
 BOOST_TILE_DELTA         = 200.0
 SLOWDOWN_TILE_DELTA      = 200.0
+TRACK_HISTORY_MAX        = 5
+TRACK_HISTORY_INTERVAL   = 10
 POWERUP_SIZE_SCALE       = 2.0
 POWERUP_SIZE_DURATION    = 5.0
 SHELL_SIZE               = PLAYER_SIZE
@@ -71,6 +74,8 @@ COLOR_PLAYER        = (220,  30,  30)
 COLOR_PLAYER2       = ( 30, 100, 220)
 COLOR_FINISH        = (180, 180, 180)
 COLOR_ERROR         = (220,  60,  60)
+COLOR_TRACK_P1      = (180, 120, 120)
+COLOR_TRACK_P2      = (120, 120, 180)
 
 _PLAYER_SPRITE_CACHE: dict[str, pygame.Surface] = {}
 
@@ -102,6 +107,22 @@ def _draw_player_sprite_static(surface: pygame.Surface, screen_x: int, screen_y:
     sprite = pygame.transform.scale(sprite, (size, size))
     surface.blit(sprite, sprite.get_rect(center=(screen_x, screen_y)))
 
+
+_ARROW_SPRITE_CACHE: dict[str, pygame.Surface] = {}
+
+_ARROW_ROTATION = {'right': 0, 'up': 90, 'left': 180, 'down': 270}
+
+
+def _load_arrow_sprite(direction: str) -> pygame.Surface:
+    sprite = _ARROW_SPRITE_CACHE.get(direction)
+    if sprite is None:
+        path = os.path.join(os.path.dirname(__file__), 'arrow.png')
+        base = pygame.image.load(path).convert_alpha()
+        sprite = pygame.transform.rotate(base, _ARROW_ROTATION[direction])
+        _ARROW_SPRITE_CACHE[direction] = sprite
+    return sprite
+
+
 # =============================================================================
 # Tile registry
 # =============================================================================
@@ -123,11 +144,16 @@ TILE_TYPE_INFO = {
                          'points': ((0.0, 1.0), (1.0, 1.0), (0.0, 0.0))},
     'tri_bottom_right': {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri',
                          'points': ((1.0, 1.0), (1.0, 0.0), (0.0, 1.0))},
+    'arrow_left':  {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'arrow', 'direction': 'left'},
+    'arrow_right': {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'arrow', 'direction': 'right'},
+    'arrow_up':    {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'arrow', 'direction': 'up'},
+    'arrow_down':  {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'arrow', 'direction': 'down'},
 }
 
 CHAR_TO_TILE_TYPE = {
     '#': 'wall', '*': 'powerup1', '+': 'powerup2', '@': 'spawner',
     '1': 'player1_spawn', '2': 'player2_spawn', '|': 'finish_line',
+    '<': 'arrow_left', '>': 'arrow_right', '^': 'arrow_up', 'v': 'arrow_down',
 }
 
 # =============================================================================
@@ -248,6 +274,13 @@ def tri_mask_overlap(player_rect: pygame.Rect, tile_rect: pygame.Rect,
         return False
     return tri_mask.overlap(player_mask, (player_rect.left - tile_rect.left,
                                           player_rect.top  - tile_rect.top)) is not None
+
+def draw_track_history(patch: pygame.Surface, track_history: collections.deque,
+                       color: tuple[int, int, int], plx: float, pty: float):
+    """Draw track marks onto the camera patch surface in patch-space coordinates."""
+    for wx, wy in track_history:
+        pygame.draw.rect(patch, color, (int(wx - plx) - 1, int(wy - pty) - 1, 2, 2))
+
 
 # =============================================================================
 # Game objects
@@ -373,6 +406,11 @@ class Map:
                 is_interior = (wr.top // TILE_SIZE, wr.left // TILE_SIZE) in self.interior
                 if info['shape'] == 'rect':
                     pygame.draw.rect(surf, info['color'] if info['is_wall'] or is_interior else COLOR_BACKGROUND, wr)
+                elif info['shape'] == 'arrow':
+                    pygame.draw.rect(surf, COLOR_OPEN if is_interior else COLOR_BACKGROUND, wr)
+                    if is_interior:
+                        sprite = _load_arrow_sprite(info['direction'])
+                        surf.blit(sprite, sprite.get_rect(center=wr.center))
                 else:
                     pygame.draw.rect(surf, COLOR_OPEN if is_interior else COLOR_BACKGROUND, wr)
                     m = TILE_SIZE - 1
@@ -527,6 +565,8 @@ class Vehicle:
         self.size_timer:      float = 0.0
         self.on_powerup1 = False
         self.on_powerup2 = False
+        self.track_history: collections.deque = collections.deque(maxlen=TRACK_HISTORY_MAX)
+        self.track_frame_counter: int = 0
 
     def get_bounding_rect(self) -> pygame.Rect:
         size = int(PLAYER_SIZE * self.size_multiplier)
@@ -644,14 +684,17 @@ def render_menu(screen: pygame.Surface, play_rect: pygame.Rect, quit_rect: pygam
 
 
 def render_post_race(screen: pygame.Surface, play_again_rect: pygame.Rect, menu_rect: pygame.Rect,
-                     title_font: pygame.font.Font, button_font: pygame.font.Font, selected_idx: int = 0):
+                     title_font: pygame.font.Font, button_font: pygame.font.Font,
+                     selected_idx: int = 0, show_play_again: bool = True):
     overlay = pygame.Surface((VIEWPORT_WIDTH, VIEWPORT_HEIGHT), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 160))
     screen.blit(overlay, (0, 0))
     _blit_c(screen, title_font.render('Race Over!', True, (255,255,255)), (VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//2 - 80))
-    _btn(screen, play_again_rect, 'Play Again', button_font,
-         selected_idx == 0, bg=(60,140,60), bg_h=(90,185,90), fg=(255,255,255), border=(30,90,30))
-    _btn(screen, menu_rect, 'Exit to Menu', button_font, selected_idx == 1)
+    if show_play_again:
+        _btn(screen, play_again_rect, 'Play Again', button_font, selected_idx == 0,
+             bg=(50,50,80), bg_h=(80,80,130), fg=(255,255,255), border=(120,120,180))
+    _btn(screen, menu_rect, 'Exit to Menu', button_font, selected_idx == (1 if show_play_again else 0),
+         bg=(50,50,80), bg_h=(80,80,130), fg=(255,255,255), border=(120,120,180))
 
 
 def render_center_overlay_message(screen: pygame.Surface, message: str, font: pygame.font.Font):
@@ -667,7 +710,8 @@ def render_map(screen: pygame.Surface, map_surface: pygame.Surface, camera: Came
                viewport_rect: pygame.Rect | None = None,
                overlay_vehicles: list | None = None,
                overlay_shells: list | None = None,
-               overlay_spawners: list | None = None):
+               overlay_spawners: list | None = None,
+               track_histories: list[tuple[collections.deque, tuple]] | None = None):
     if viewport_rect is None:
         viewport_rect = pygame.Rect(0, 0, camera.viewport_w, camera.viewport_h)
     diag = int(math.ceil(math.sqrt(camera.viewport_w**2 + camera.viewport_h**2))) + 2*TILE_SIZE
@@ -675,6 +719,9 @@ def render_map(screen: pygame.Surface, map_surface: pygame.Surface, camera: Came
     cx, cy = camera.offset_x + camera.viewport_w/2.0, camera.offset_y + camera.viewport_h/2.0
     plx, pty = cx - diag/2.0, cy - diag/2.0
     patch.blit(map_surface, (-int(round(plx)), -int(round(pty))))
+    if track_histories:
+        for history, color in track_histories:
+            draw_track_history(patch, history, color, plx, pty)
     for group in (overlay_spawners, overlay_vehicles, overlay_shells):
         if group:
             for obj in group:

@@ -12,17 +12,19 @@ import pygame
 from pikart_shared import (
     HOST_PORT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, FPS,
     TOTAL_LAPS, MAX_PHYSICS_DT, COLOR_BACKGROUND, COLOR_PLAYER, COLOR_PLAYER2,
+    COLOR_TRACK_P1, COLOR_TRACK_P2,
     COLOR_ERROR, TILE_TYPE_INFO, TILE_SIZE, PLAYER_SIZE,
     STATE_MENU, STATE_WAITING, STATE_GAME, STATE_POST_RACE,
     Map, Camera, Vehicle, Shell, PowerupSpawner,
     _draw_player_sprite_static,
     POWERUP_SIZE_GROW, POWERUP_SIZE_SHRINK, POWERUP_GREEN_SHELL, POWERUP_RED_SHELL,
     POWERUP_SIZE_SCALE, POWERUP_SIZE_DURATION, SHELL_SIZE,
-    BOOST_TILE_DELTA, SLOWDOWN_TILE_DELTA,
+    BOOST_TILE_DELTA, SLOWDOWN_TILE_DELTA, TRACK_HISTORY_INTERVAL,
     DISCONNECTED, flush_queue, net_send_thread, net_recv_thread,
     _blit_c, _btn, make_button_rect,
     render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
+    draw_track_history,
     send_msg, recv_msg, aabb_mtv,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
     joystick_consume_press, joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW,
@@ -308,9 +310,10 @@ def close_server():
         server_sock = None
 
 
-def build_state_packet(game_state: str, countdown: float, go_display: float) -> dict:
+def build_state_packet(game_state: str, countdown: float, go_display: float, track: bool = False) -> dict:
     return {
         'state': game_state, 'countdown': round(countdown, 4), 'go': go_display > 0.0,
+        'track': track,
         'p1': {'x': round(p1.world_x, 3), 'y': round(p1.world_y, 3),
                'heading': round(p1.heading, 5), 'lap': p1.max_lap,
                'place': p1.finish_place, 'powerup': p1.stored_powerup,
@@ -488,6 +491,7 @@ while running:
     if go_display_remaining > 0.0:
         go_display_remaining = max(0.0, go_display_remaining - dt)
 
+    track_record = False
     if countdown_remaining <= 0.0:
         if DEBUG:
             p1.handle_input()
@@ -585,12 +589,25 @@ while running:
         if p1.race_finished and p2.race_finished:
             current_state = STATE_POST_RACE
 
+        track_record = False
+        p1.track_frame_counter += 1
+        if p1.track_frame_counter >= TRACK_HISTORY_INTERVAL:
+            p1.track_frame_counter = 0
+            p1.track_history.append((p1.world_x, p1.world_y))
+            track_record = True
+        p2.track_frame_counter += 1
+        if p2.track_frame_counter >= TRACK_HISTORY_INTERVAL:
+            p2.track_frame_counter = 0
+            p2.track_history.append((p2.world_x, p2.world_y))
+            track_record = True
+
     camera.center_on(p1.world_x, p1.world_y)
     camera.heading = p1.heading
 
     screen.fill(COLOR_BACKGROUND)
     render_map(screen, map_surface, camera, full_viewport,
-               overlay_vehicles=[p2], overlay_shells=shells, overlay_spawners=spawners)
+               overlay_vehicles=[p2], overlay_shells=shells, overlay_spawners=spawners,
+               track_histories=[(p1.track_history, COLOR_TRACK_P1), (p2.track_history, COLOR_TRACK_P2)])
     _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p1.color, p1.size_multiplier)
     render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
                p1_total_timer, p1_lap_timer, p1.finish_place, hud_font, place_font, p1.stored_powerup)
@@ -601,7 +618,7 @@ while running:
         render_center_overlay_message(screen, 'GO!', countdown_font)
 
     pygame.display.flip()
-    state_q.put(build_state_packet(STATE_GAME, countdown_remaining, go_display_remaining))
+    state_q.put(build_state_packet(STATE_GAME, countdown_remaining, go_display_remaining, track_record))
 
 pygame.quit()
 log("shutting down")

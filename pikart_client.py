@@ -1,4 +1,5 @@
 from __future__ import annotations
+import collections
 import os
 import math
 import queue
@@ -12,12 +13,14 @@ import pygame
 from pikart_shared import (
     HOST_PORT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, FPS,
     TOTAL_LAPS, MAX_PHYSICS_DT, COLOR_BACKGROUND, COLOR_PLAYER, COLOR_PLAYER2,
+    COLOR_TRACK_P1, COLOR_TRACK_P2,
     STATE_MENU, STATE_WAITING, STATE_GAME, STATE_POST_RACE,
     Map, Camera, Shell, PowerupSpawner, PLAYER_SIZE,
     _draw_player_sprite_static,
     DISCONNECTED, flush_queue, net_send_thread, net_recv_thread,
     make_button_rect, render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
+    draw_track_history, TRACK_HISTORY_INTERVAL, TRACK_HISTORY_MAX,
     send_msg, recv_msg,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
     joystick_consume_press, joystick_btn, joystick_menu_y, JS_SW,
@@ -109,6 +112,7 @@ class MirrorVehicle:
         self.stored_powerup:  str | None = None
         self.size_multiplier: float = 1.0
         self.color = color
+        self.track_history: collections.deque = collections.deque(maxlen=TRACK_HISTORY_MAX)
 
     def apply_state(self, data: dict):
         self.world_x         = float(data['x'])
@@ -142,13 +146,13 @@ full_viewport        = pygame.Rect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
 play_button_rect     = make_button_rect(VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//2 - 27)
 quit_button_rect     = make_button_rect(VIEWPORT_WIDTH//2, VIEWPORT_HEIGHT//2 + 27)
 post_race_again_rect = make_button_rect(VIEWPORT_WIDTH//2 - 60, VIEWPORT_HEIGHT//2 + 10, width=100, height=30)
-post_race_menu_rect  = make_button_rect(VIEWPORT_WIDTH//2 + 60, VIEWPORT_HEIGHT//2 + 10, width=100, height=30)
+post_race_menu_rect  = make_button_rect(VIEWPORT_WIDTH//2,      VIEWPORT_HEIGHT//2 + 10, width=100, height=30)
 
 current_state = STATE_MENU
 error_msg: str | None = None
 waiting_msg  = 'Connecting...'
 menu_sel     = 0   # 0=Play, 1=Quit
-post_sel     = 1   # 0=Play Again (inactive on client), 1=Exit to Menu
+post_sel     = 0   # always 0; client shows only Exit to Menu
 
 game_map: Map | None               = None
 map_surface: pygame.Surface | None = None
@@ -191,6 +195,8 @@ def reset_race_state():
     global p2_total_timer, p2_lap_timer, p2_prev_lap, p2_race_finished, latest_shells, latest_spawners
     p2_total_timer = p2_lap_timer = 0.0
     p2_prev_lap = 1; p2_race_finished = False; latest_shells = []; latest_spawners = []
+    p1_mirror.track_history.clear()
+    p2_mirror.track_history.clear()
 
 # =============================================================================
 # Main loop
@@ -243,6 +249,13 @@ while running:
                     latest_go        = bool(pkt.get('go', False))
                     p1_mirror.apply_state(pkt['p1'])
                     p2_mirror.apply_state(pkt['p2'])
+                    if current_state == STATE_GAME and pkt.get('track'):
+                        pos1 = (p1_mirror.world_x, p1_mirror.world_y)
+                        if not p1_mirror.track_history or p1_mirror.track_history[-1] != pos1:
+                            p1_mirror.track_history.append(pos1)
+                        pos2 = (p2_mirror.world_x, p2_mirror.world_y)
+                        if not p2_mirror.track_history or p2_mirror.track_history[-1] != pos2:
+                            p2_mirror.track_history.append(pos2)
                     latest_shells   = [Shell.from_dict(d) for d in pkt.get('shells', [])]
                     latest_spawners = [PowerupSpawner.from_dict(d) for d in pkt.get('spawners', [])]
                     if not DEBUG:
@@ -297,7 +310,7 @@ while running:
                     current_state = STATE_WAITING
                 else:
                     running = False
-            elif current_state == STATE_POST_RACE and post_sel == 1:
+            elif current_state == STATE_POST_RACE:
                 disconnect(None); error_msg = None
 
     for event in pygame.event.get():
@@ -327,7 +340,7 @@ while running:
                         running = False
 
             elif current_state == STATE_POST_RACE:
-                if key == pygame.K_SPACE and post_sel == 1:
+                if key == pygame.K_SPACE:
                     disconnect(None); error_msg = None
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -344,7 +357,6 @@ while running:
             elif current_state == STATE_POST_RACE:
                 if post_race_menu_rect.collidepoint(pos):
                     disconnect(None); error_msg = None
-
     if current_state == STATE_MENU:
         render_menu(screen, play_button_rect, quit_button_rect, title_font, button_font, error_msg, menu_sel)
         pygame.display.flip(); continue
@@ -361,7 +373,8 @@ while running:
 
     screen.fill(COLOR_BACKGROUND)
     render_map(screen, map_surface, camera, full_viewport,
-               overlay_vehicles=[p1_mirror], overlay_shells=latest_shells, overlay_spawners=latest_spawners)
+               overlay_vehicles=[p1_mirror], overlay_shells=latest_shells, overlay_spawners=latest_spawners,
+               track_histories=[(p1_mirror.track_history, COLOR_TRACK_P1), (p2_mirror.track_history, COLOR_TRACK_P2)])
     _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p2_mirror.color, p2_mirror.size_multiplier)
     render_hud(screen, full_viewport, p2_mirror.max_lap, TOTAL_LAPS,
                p2_total_timer, p2_lap_timer, p2_mirror.finish_place,
@@ -373,7 +386,7 @@ while running:
         render_center_overlay_message(screen, 'GO!', countdown_font)
 
     if current_state == STATE_POST_RACE:
-        render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font, post_sel)
+        render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font, post_sel, show_play_again=False)
 
     pygame.display.flip()
 
