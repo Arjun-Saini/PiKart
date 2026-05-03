@@ -24,6 +24,7 @@ from pikart_shared import (
     _blit_c, _btn, make_button_rect,
     render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
+    build_minimap_surface, render_minimap,
     draw_track_history,
     send_msg, recv_msg, aabb_mtv,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
@@ -224,6 +225,7 @@ post_sel     = 0   # 0=Play Again, 1=Exit to Menu
 
 game_map: Map | None               = None
 map_surface: pygame.Surface | None = None
+minimap_surface: pygame.Surface | None = None
 p1: Vehicle | None = None
 p2: Vehicle | None = None
 camera: Camera | None = None
@@ -262,11 +264,12 @@ def open_server_socket():
 
 
 def start_race(map_stem: str):
-    global game_map, map_surface, p1, p2, camera
+    global game_map, map_surface, minimap_surface, p1, p2, camera
     global countdown_remaining, go_display_remaining, next_finish_place
     global p1_total_timer, p1_lap_timer, shells, spawners, p1_prev_lap
-    game_map    = Map(map_stem + '.txt')
-    map_surface = game_map.build_surface()
+    game_map        = Map(map_stem + '.txt')
+    map_surface     = game_map.build_surface()
+    minimap_surface = build_minimap_surface(map_surface, game_map)
     p1 = Vehicle(*game_map.player1_spawn,
                  throttle_forward_key=pygame.K_UP,    throttle_back_key=pygame.K_DOWN,
                  steer_left_key=pygame.K_LEFT,        steer_right_key=pygame.K_RIGHT,
@@ -473,6 +476,7 @@ while running:
         _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p1.color, p1.size_multiplier)
         render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
                    p1_total_timer, p1_lap_timer, p1.finish_place, hud_font, place_font, p1.stored_powerup)
+        render_minimap(screen, minimap_surface, [p1, p2], game_map, full_viewport)
         render_post_race(screen, post_race_again_rect, post_race_menu_rect, title_font, button_font, post_sel)
         pygame.display.flip()
         state_q.put(build_state_packet(STATE_POST_RACE, 0.0, 0.0))
@@ -611,6 +615,7 @@ while running:
     _draw_player_sprite_static(screen, full_viewport.centerx, full_viewport.centery, p1.color, p1.size_multiplier)
     render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
                p1_total_timer, p1_lap_timer, p1.finish_place, hud_font, place_font, p1.stored_powerup)
+    render_minimap(screen, minimap_surface, [p1, p2], game_map, full_viewport)
 
     if countdown_remaining > 0.0:
         render_center_overlay_message(screen, str(int(math.ceil(countdown_remaining))), countdown_font)

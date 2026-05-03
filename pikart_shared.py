@@ -48,8 +48,11 @@ RUMBLE_DURATION  = 0.12
 
 BOOST_TILE_DELTA         = 200.0
 SLOWDOWN_TILE_DELTA      = 200.0
-TRACK_HISTORY_MAX        = 5
-TRACK_HISTORY_INTERVAL   = 10
+TRACK_HISTORY_MAX        = 10
+TRACK_HISTORY_INTERVAL   = 15
+MINIMAP_W                = 60
+MINIMAP_H                = 50
+MINIMAP_MARGIN           = 4
 POWERUP_SIZE_SCALE       = 2.0
 POWERUP_SIZE_DURATION    = 5.0
 SHELL_SIZE               = PLAYER_SIZE
@@ -695,6 +698,40 @@ def render_post_race(screen: pygame.Surface, play_again_rect: pygame.Rect, menu_
              bg=(50,50,80), bg_h=(80,80,130), fg=(255,255,255), border=(120,120,180))
     _btn(screen, menu_rect, 'Exit to Menu', button_font, selected_idx == (1 if show_play_again else 0),
          bg=(50,50,80), bg_h=(80,80,130), fg=(255,255,255), border=(120,120,180))
+
+
+def build_minimap_surface(map_surface: pygame.Surface, game_map: 'Map') -> pygame.Surface:
+    """Scale map_surface down to fit within MINIMAP_W x MINIMAP_H, preserving aspect ratio."""
+    scale = min(MINIMAP_W / game_map.pixel_width, MINIMAP_H / game_map.pixel_height)
+    w = max(1, int(game_map.pixel_width  * scale))
+    h = max(1, int(game_map.pixel_height * scale))
+    base = pygame.Surface((w, h))
+    base.fill(COLOR_BACKGROUND)
+    scaled = pygame.transform.scale(map_surface, (w, h))
+    base.blit(scaled, (0, 0))
+    return base
+
+
+def render_minimap(screen: pygame.Surface, minimap_surface: pygame.Surface,
+                   vehicles: list, game_map: 'Map', viewport_rect: pygame.Rect):
+    """Draw the mini-map with a 1px border and rotated vehicle sprites in the bottom-right corner."""
+    mw = minimap_surface.get_width()
+    mh = minimap_surface.get_height()
+    scale_x = mw / game_map.pixel_width
+    scale_y = mh / game_map.pixel_height
+    x = viewport_rect.right  - MINIMAP_MARGIN - mw
+    y = viewport_rect.bottom - MINIMAP_MARGIN - mh
+    pygame.draw.rect(screen, (160, 160, 160), (x - 1, y - 1, mw + 2, mh + 2))
+    screen.blit(minimap_surface, (x, y))
+    for v in vehicles:
+        dx = int(v.world_x * scale_x)
+        dy = int(v.world_y * scale_y)
+        filename = 'red_car.png' if v.color == COLOR_PLAYER else 'blue_car.png'
+        sprite = _load_player_sprite(filename)
+        sprite = pygame.transform.scale(sprite, (8, 8)).convert_alpha()
+        angle  = -math.degrees(v.heading) - 90.0
+        sprite = pygame.transform.rotate(sprite, angle)
+        screen.blit(sprite, sprite.get_rect(center=(x + dx, y + dy)))
 
 
 def render_center_overlay_message(screen: pygame.Surface, message: str, font: pygame.font.Font):

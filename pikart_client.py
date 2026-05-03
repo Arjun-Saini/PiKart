@@ -20,6 +20,7 @@ from pikart_shared import (
     DISCONNECTED, flush_queue, net_send_thread, net_recv_thread,
     make_button_rect, render_menu, render_status_screen, render_post_race,
     render_center_overlay_message, render_map, render_hud,
+    build_minimap_surface, render_minimap,
     draw_track_history, TRACK_HISTORY_INTERVAL, TRACK_HISTORY_MAX,
     send_msg, recv_msg,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
@@ -156,6 +157,7 @@ post_sel     = 0   # always 0; client shows only Exit to Menu
 
 game_map: Map | None               = None
 map_surface: pygame.Surface | None = None
+minimap_surface: pygame.Surface | None = None
 
 p2_mirror = MirrorVehicle(color=COLOR_PLAYER2)
 p1_mirror = MirrorVehicle(color=COLOR_PLAYER)
@@ -235,8 +237,9 @@ while running:
                     waiting_msg = 'Player 1 is selecting a map...'
                 elif 'map' in pkt and current_state == STATE_WAITING and sock is not None:
                     log(f"map: {pkt['map']!r}")
-                    game_map    = Map(pkt['map'] + '.txt')
-                    map_surface = game_map.build_surface()
+                    game_map        = Map(pkt['map'] + '.txt')
+                    map_surface     = game_map.build_surface()
+                    minimap_surface = build_minimap_surface(map_surface, game_map)
                     reset_race_state()
                     p2_mirror.apply_state({'x': game_map.player2_spawn[0], 'y': game_map.player2_spawn[1],
                                            'heading': 0.0, 'lap': 1, 'place': None})
@@ -379,6 +382,7 @@ while running:
     render_hud(screen, full_viewport, p2_mirror.max_lap, TOTAL_LAPS,
                p2_total_timer, p2_lap_timer, p2_mirror.finish_place,
                hud_font, place_font, p2_mirror.stored_powerup)
+    render_minimap(screen, minimap_surface, [p1_mirror, p2_mirror], game_map, full_viewport)
 
     if latest_countdown > 0.0:
         render_center_overlay_message(screen, str(int(math.ceil(latest_countdown))), countdown_font)
