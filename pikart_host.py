@@ -31,6 +31,12 @@ from pikart_shared import (
     motor_init, motor_stop, motor_rumble, motor_update,
 )
 
+os.putenv('SDL_VIDEODRIVER', 'fbcon')
+os.putenv('SDL_FBDEV', '/dev/fb0')
+os.putenv('SDL_MOUSEDRV', 'dummy')
+os.putenv('MOUSEDEV', '/dev/null')
+os.putenv('DISPLAY', '')
+
 DEBUG = 'debug' in sys.argv
 HOST_IP = '127.0.0.1' if DEBUG else '192.168.50.1'
 
