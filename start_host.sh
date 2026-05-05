@@ -1,4 +1,5 @@
 #!/bin/bash
+cd /home/pi/PiKart
 sleep 10
 pigpiod
 sleep 2
