@@ -313,7 +313,7 @@ while running:
         else:
             throttle = joystick_throttle()
             steer = joystick_steer()
-            activate = joystick_btn(JS_SW)
+            activate = joystick_consume_press()
             if activate:
                 motor_rumble()
         flush_queue(input_q)
