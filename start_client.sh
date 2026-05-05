@@ -8,4 +8,4 @@ until ping -c1 -W1 192.168.50.1 > /dev/null 2>&1; do
     sleep 1
 done
 
-python /home/pi/pikart/pikart_client.py
+python /home/pi/PiKart/pikart_client.py
