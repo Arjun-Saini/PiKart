@@ -116,8 +116,9 @@ class MirrorVehicle:
 
 pygame.init()
 screen = pygame.display.set_mode((VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
-pygame.display.set_caption('PiKart — Client')
+pygame.display.set_caption('PiKart - Client')
 clock = pygame.time.Clock()
+pygame.mouse.set_visible(False)
 
 hud_font       = pygame.font.SysFont(None, 14)
 place_font     = pygame.font.SysFont(None, 26)

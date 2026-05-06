@@ -216,8 +216,9 @@ def accept_thread(server_sock: socket.socket, result_q: queue.Queue):
 
 pygame.init()
 screen = pygame.display.set_mode((VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
-pygame.display.set_caption('PiKart — Host')
+pygame.display.set_caption('PiKart - Host')
 clock = pygame.time.Clock()
+pygame.mouse.set_visible(False)
 
 hud_font       = pygame.font.SysFont(None, 14)
 place_font     = pygame.font.SysFont(None, 26)
