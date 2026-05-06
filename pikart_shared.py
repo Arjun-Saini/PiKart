@@ -950,6 +950,14 @@ def motor_update():
         motor_end_time = 0.0
 
 
+# immediately cancels any active rumble and turns the motor off
+def motor_cancel():
+    global motor_end_time
+    motor_end_time = 0.0
+    if motor_pi is not None:
+        motor_pi.write(MOTOR_GPIO, 0)
+
+
 # =============================================================================
 # Joystick input (MCP3008 via bit-banged SPI, pigpio)
 #

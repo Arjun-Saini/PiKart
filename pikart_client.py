@@ -23,8 +23,8 @@ from pikart_shared import (
     build_minimap_surface, render_minimap,
     TRACK_HISTORY_MAX,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_consume_press, joystick_btn, joystick_menu_y, JS_SW,
-    motor_init, motor_stop, motor_rumble, motor_update,
+    joystick_consume_press, joystick_btn, joystick_menu_y, joystick_clear_latch, JS_SW,
+    motor_init, motor_stop, motor_rumble, motor_update, motor_cancel,
 )
 
 os.putenv('SDL_VIDEODRIVER', 'fbcon')
@@ -116,7 +116,7 @@ class MirrorVehicle:
 
 pygame.init()
 screen = pygame.display.set_mode((VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
-pygame.display.set_caption('PiKart - Client')
+pygame.display.set_caption('PiKart — Client')
 clock = pygame.time.Clock()
 pygame.mouse.set_visible(False)
 
@@ -181,6 +181,9 @@ def disconnect(reason: str | None):
     error_msg = reason
     waiting_msg = 'Connecting...'
     current_state = STATE_MENU
+    if not DEBUG:
+        joystick_clear_latch()
+        motor_cancel()
 
 
 # clears menu state and starts the connect thread; transitions to STATE_WAITING
@@ -314,7 +317,7 @@ while running:
         else:
             throttle = joystick_throttle()
             steer = joystick_steer()
-            activate = joystick_consume_press()
+            activate = joystick_btn(JS_SW)
             if activate:
                 motor_rumble()
         flush_queue(input_q)

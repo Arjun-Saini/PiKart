@@ -27,8 +27,8 @@ from pikart_shared import (
     build_minimap_surface, render_minimap,
     send_msg, aabb_mtv, vehicle_to_dict,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_consume_press, joystick_btn, joystick_menu_x, joystick_menu_y, JS_SW,
-    motor_init, motor_stop, motor_rumble, motor_update,
+    joystick_consume_press, joystick_btn, joystick_menu_x, joystick_menu_y, joystick_clear_latch, JS_SW,
+    motor_init, motor_stop, motor_rumble, motor_update, motor_cancel,
 )
 
 os.putenv('SDL_VIDEODRIVER', 'fbcon')
@@ -216,7 +216,7 @@ def accept_thread(server_sock: socket.socket, result_q: queue.Queue):
 
 pygame.init()
 screen = pygame.display.set_mode((VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
-pygame.display.set_caption('PiKart - Host')
+pygame.display.set_caption('PiKart — Host')
 clock = pygame.time.Clock()
 pygame.mouse.set_visible(False)
 
@@ -343,6 +343,9 @@ def close_server():
 def return_to_menu():
     disconnect(None)
     close_server()
+    if not DEBUG:
+        joystick_clear_latch()
+        motor_cancel()
 
 
 # starts the connection-accepting flow from the menu screen
@@ -356,6 +359,9 @@ def begin_play():
 # starts a race or sends the client back to map selection for a replay
 def begin_race(map_stem: str | None, replay: bool):
     global current_state, map_names, map_row_rects, map_sel
+    if not DEBUG:
+        joystick_clear_latch()
+        motor_cancel()
     if replay:
         state_q.put({'replay': True})
         map_names = scan_map_files()
