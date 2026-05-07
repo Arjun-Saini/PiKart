@@ -23,22 +23,26 @@ from pikart_shared import (
     build_minimap_surface, render_minimap,
     TRACK_HISTORY_MAX,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_consume_press, joystick_btn, joystick_menu_y, joystick_clear_latch, JS_SW,
+    joystick_consume_press, joystick_menu_y, joystick_clear_latch,
     motor_init, motor_stop, motor_rumble, motor_update, motor_cancel,
+    reset_btn_init, reset_btn_poll, reset_btn_stop,
 )
-
-os.putenv('SDL_VIDEODRIVER', 'fbcon')
-os.putenv('SDL_FBDEV', '/dev/fb0')
-os.putenv('SDL_MOUSEDRV', 'dummy')
-os.putenv('MOUSEDEV', '/dev/null')
-os.putenv('DISPLAY', '')
 
 DEBUG = 'debug' in sys.argv
 HOST_IP = '127.0.0.1' if DEBUG else '192.168.50.1'
 
 if not DEBUG:
+    os.putenv('SDL_VIDEODRIVER', 'fbcon')
+    os.putenv('SDL_FBDEV', '/dev/fb0')
+    os.putenv('SDL_MOUSEDRV', 'dummy')
+    os.putenv('MOUSEDEV', '/dev/null')
+    os.putenv('DISPLAY', '')
+
+
+if not DEBUG:
     joystick_init()
     motor_init()
+    reset_btn_init()
 
 
 def log(msg: str):
@@ -165,7 +169,7 @@ input_q = queue.Queue()
 state_q = queue.Queue()
 sock: socket.socket | None = None
 
-KEY_FORWARD, KEY_BACK, KEY_LEFT, KEY_RIGHT = pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d
+KEY_FORWARD, KEY_BACK, KEY_LEFT, KEY_RIGHT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT
 
 
 # closes the connection and signals the network threads; clears error_msg via the reason argument
@@ -218,6 +222,12 @@ def reset_race_state():
 running = True
 while running:
     dt = min(clock.tick(FPS) / 1000.0, MAX_PHYSICS_DT)
+
+    # GPIO 17 reset button: request host to force-restart to map selection
+    if not DEBUG and reset_btn_poll():
+        if current_state in (STATE_GAME, STATE_POST_RACE) and sock is not None:
+            flush_queue(input_q)
+            input_q.put({'reset': True})
 
     # connection result: promote the socket and start net threads, or surface a connect failure
     if current_state == STATE_WAITING and sock is None:
@@ -281,17 +291,20 @@ while running:
                             p2_mirror.track_history.append(pos2)
                     latest_shells = [shell_from_dict(d) for d in pkt.get('shells', [])]
                     latest_spawners = [spawner_from_dict(d) for d in pkt.get('spawners', [])]
-                    if not DEBUG:
-                        if pkt.get('p2_collided', False):
-                            motor_rumble()
-                        if pkt.get('p2_shell_hit', False):
+                    if not DEBUG and not p2_race_finished:
+                        if pkt.get('p2_collided', False) or pkt.get('p2_shell_hit', False):
                             motor_rumble()
                     pkt_state = pkt.get('state')
                     if pkt_state == STATE_GAME and current_state == STATE_WAITING:
                         log("→ GAME")
+                        if not DEBUG:
+                            joystick_clear_latch()
                         current_state = STATE_GAME
                     elif pkt_state == STATE_POST_RACE and current_state != STATE_POST_RACE:
                         p2_race_finished = True
+                        if not DEBUG:
+                            motor_cancel()
+                            joystick_clear_latch()
                         current_state = STATE_POST_RACE
         except queue.Empty:
             pass
@@ -303,6 +316,8 @@ while running:
             p2_prev_lap = p2_mirror.max_lap
         if p2_mirror.finish_place is not None:
             p2_race_finished = True
+            if not DEBUG:
+                motor_cancel()
         if not p2_race_finished:
             p2_total_timer += dt
             p2_lap_timer += dt
@@ -317,7 +332,7 @@ while running:
         else:
             throttle = joystick_throttle()
             steer = joystick_steer()
-            activate = joystick_btn(JS_SW)
+            activate = joystick_consume_press()
             if activate:
                 motor_rumble()
         flush_queue(input_q)
@@ -352,6 +367,9 @@ while running:
                     disconnect(None)
                 else:
                     running = False
+            elif DEBUG and key == pygame.K_r and current_state in (STATE_GAME, STATE_POST_RACE) and sock is not None:
+                flush_queue(input_q)
+                input_q.put({'reset': True})
             elif current_state == STATE_MENU:
                 if key in (pygame.K_UP, pygame.K_DOWN):
                     menu_sel = 1 - menu_sel
@@ -425,4 +443,5 @@ pygame.quit()
 if not DEBUG:
     joystick_stop()
     motor_stop()
+    reset_btn_stop()
 sys.exit()

@@ -46,6 +46,7 @@ PLAYER_MAX_ANG_VEL = 4.5
 
 MOTOR_GPIO = 22
 RUMBLE_DURATION = 0.12
+RESET_GPIO = 17
 
 BOOST_TILE_DELTA = 200.0
 SLOWDOWN_TILE_DELTA = 200.0
@@ -105,14 +106,10 @@ TILE_TYPE_INFO = {
     'player1_spawn':    {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'rect'},
     'player2_spawn':    {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'rect'},
     'finish_line':      {'color': COLOR_FINISH, 'is_wall': False, 'shape': 'rect'},
-    'tri_top_left':     {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri',
-                         'points': ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0))},
-    'tri_top_right':    {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri',
-                         'points': ((1.0, 0.0), (1.0, 1.0), (0.0, 0.0))},
-    'tri_bottom_left':  {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri',
-                         'points': ((0.0, 1.0), (1.0, 1.0), (0.0, 0.0))},
-    'tri_bottom_right': {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri',
-                         'points': ((1.0, 1.0), (1.0, 0.0), (0.0, 1.0))},
+    'tri_top_left':     {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri', 'points': ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0))},
+    'tri_top_right':    {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri', 'points': ((1.0, 0.0), (1.0, 1.0), (0.0, 0.0))},
+    'tri_bottom_left':  {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri', 'points': ((0.0, 1.0), (1.0, 1.0), (0.0, 0.0))},
+    'tri_bottom_right': {'color': COLOR_WALL, 'is_wall': True, 'shape': 'tri', 'points': ((1.0, 1.0), (1.0, 0.0), (0.0, 1.0))},
     'arrow_left':  {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'arrow', 'direction': 'left'},
     'arrow_right': {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'arrow', 'direction': 'right'},
     'arrow_up':    {'color': COLOR_OPEN, 'is_wall': False, 'shape': 'arrow', 'direction': 'up'},
@@ -120,9 +117,17 @@ TILE_TYPE_INFO = {
 }
 
 CHAR_TO_TILE_TYPE = {
-    '#': 'wall', '*': 'powerup1', '+': 'powerup2', '@': 'spawner',
-    '1': 'player1_spawn', '2': 'player2_spawn', '|': 'finish_line',
-    '<': 'arrow_left', '>': 'arrow_right', '^': 'arrow_up', 'v': 'arrow_down',
+    '#': 'wall', 
+    '*': 'powerup1', 
+    '+': 'powerup2', 
+    '@': 'spawner',
+    '1': 'player1_spawn', 
+    '2': 'player2_spawn', 
+    '|': 'finish_line',
+    '<': 'arrow_left', 
+    '>': 'arrow_right', 
+    '^': 'arrow_up', 
+    'v': 'arrow_down',
 }
 
 # =============================================================================
@@ -370,7 +375,7 @@ class Map:
         self.finish_line_y_min = finish_rows[0] * TILE_SIZE
         self.finish_line_y_max = (finish_rows[-1] + 1) * TILE_SIZE
 
-    # marching squares: replaces wall corners with diagonal tri tiles
+    # replaces wall corners with diagonal tri tiles
     def infer_diagonal_tiles(self):
         walls = [[t.tile_type == 'wall' for t in row] for row in self.grid]
         for r in range(self.rows - 1):
@@ -896,14 +901,7 @@ def render_hud(screen: pygame.Surface, viewport_rect: pygame.Rect,
     text_box(screen, s, powerup_box)
 
 # =============================================================================
-# Vibration motor output (pigpio, GPIO 22)
-#
-# Wiring:
-#   GPIO 22 (Pin 15) -> 1k resistor -> NPN transistor Base
-#   Transistor Collector -> Motor (-)
-#   Motor (+) -> 3.3V or 5V
-#   Transistor Emitter -> GND
-#   Flyback diode across motor terminals
+# Vibration motor
 # =============================================================================
 
 # pigpio.pi instance, set by motor_init
@@ -959,13 +957,41 @@ def motor_cancel():
 
 
 # =============================================================================
-# Joystick input (MCP3008 via bit-banged SPI, pigpio)
-#
-# Wiring:
-#   MCP3008 CLK  -> GPIO 5    MCP3008 MOSI -> GPIO 6
-#   MCP3008 MISO -> GPIO 13   MCP3008 CS   -> GPIO 19
-#   Joystick VRx -> CH0 (steer)   VRy -> CH1 (throttle)
-#   P1 button -> GPIO 27 (active low)   P2 button -> GPIO 17 (active low)
+# Reset button (GPIO 17)
+# =============================================================================
+
+# pigpio.pi instance used for the reset button, set by reset_btn_init
+reset_pi: object = None
+
+
+# connects pigpio and configures the reset button GPIO pin as a pull-up input
+def reset_btn_init():
+    global reset_pi
+    import pigpio
+    reset_pi = pigpio.pi()
+    if not reset_pi.connected:
+        raise RuntimeError("pigpiod not running — start with: sudo pigpiod")
+    reset_pi.set_mode(RESET_GPIO, pigpio.INPUT)
+    reset_pi.set_pull_up_down(RESET_GPIO, pigpio.PUD_UP)
+
+
+# returns True if the reset button is currently pressed (pin low); safe to call every frame
+def reset_btn_poll() -> bool:
+    if reset_pi is None:
+        return False
+    return reset_pi.read(RESET_GPIO) == 0
+
+
+# disconnects the pigpio instance used for the reset button
+def reset_btn_stop():
+    global reset_pi
+    if reset_pi is not None:
+        reset_pi.stop()
+        reset_pi = None
+
+
+# =============================================================================
+# Joystick input
 # =============================================================================
 
 JS_CLK = 5
@@ -977,15 +1003,15 @@ JS_SW = 27
 JS_SPI_DELAY = 0.00001
 JS_POLL_HZ = 100
 JS_DEADZONE = 8
-JS_CENTRE = 256
+JS_CENTER = 256
 JS_MENU_TRIGGER = 80
 JS_MENU_NEUTRAL = 30
 
 # module-level joystick state, raw ADC values (0-512)
 js_pi = None
 js_lock = threading.Lock()
-js_x_raw = JS_CENTRE
-js_y_raw = JS_CENTRE
+js_x_raw = JS_CENTER
+js_y_raw = JS_CENTER
 js_menu_x_armed = True
 js_menu_y_armed = True
 js_running = False
@@ -993,7 +1019,7 @@ js_prev_pressed: bool = False
 js_press_latched: bool = False
 
 
-# bit-bangs the SPI sequence to read a 10-bit value from one MCP3008 channel
+# read a 10-bit value from one MCP3008 channel
 def js_read_mcp3008(channel: int) -> int:
     pi = js_pi
     pi.write(JS_CS, 0)
@@ -1022,10 +1048,10 @@ def js_read_mcp3008(channel: int) -> int:
 
 # converts raw value to [-1.0, 1.0] with deadzone applied in raw units
 def js_to_float(raw: int) -> float:
-    v = raw - JS_CENTRE
+    v = raw - JS_CENTER
     if abs(v) < JS_DEADZONE:
         return 0.0
-    return max(-1.0, min(1.0, v / JS_CENTRE))
+    return max(-1.0, min(1.0, v / JS_CENTER))
 
 
 # polling loop run by the joystick thread; updates raw values and latches button rising edges
@@ -1088,13 +1114,6 @@ def joystick_steer() -> float:
         return js_to_float(js_x_raw)
 
 
-# reads the button state directly from GPIO, bypassing the poll thread's latch
-def joystick_btn(sw_pin: int) -> bool:
-    if js_pi is None:
-        return False
-    return js_pi.read(sw_pin) == 0
-
-
 # atomically consumes a latched joystick press; returns True once per physical press
 def joystick_consume_press() -> bool:
     global js_press_latched
@@ -1118,13 +1137,13 @@ def joystick_menu_y() -> int:
     with js_lock:
         y = js_y_raw
     if js_menu_y_armed:
-        if y < JS_CENTRE - JS_MENU_TRIGGER:
+        if y < JS_CENTER - JS_MENU_TRIGGER:
             js_menu_y_armed = False
             return -1
-        if y > JS_CENTRE + JS_MENU_TRIGGER:
+        if y > JS_CENTER + JS_MENU_TRIGGER:
             js_menu_y_armed = False
             return 1
-    elif abs(y - JS_CENTRE) < JS_MENU_NEUTRAL:
+    elif abs(y - JS_CENTER) < JS_MENU_NEUTRAL:
         js_menu_y_armed = True
     return 0
 
@@ -1135,12 +1154,12 @@ def joystick_menu_x() -> int:
     with js_lock:
         x = js_x_raw
     if js_menu_x_armed:
-        if x < JS_CENTRE - JS_MENU_TRIGGER:
+        if x < JS_CENTER - JS_MENU_TRIGGER:
             js_menu_x_armed = False
             return -1
-        if x > JS_CENTRE + JS_MENU_TRIGGER:
+        if x > JS_CENTER + JS_MENU_TRIGGER:
             js_menu_x_armed = False
             return 1
-    elif abs(x - JS_CENTRE) < JS_MENU_NEUTRAL:
+    elif abs(x - JS_CENTER) < JS_MENU_NEUTRAL:
         js_menu_x_armed = True
     return 0

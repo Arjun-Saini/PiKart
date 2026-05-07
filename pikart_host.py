@@ -27,22 +27,25 @@ from pikart_shared import (
     build_minimap_surface, render_minimap,
     send_msg, aabb_mtv, vehicle_to_dict,
     joystick_init, joystick_stop, joystick_throttle, joystick_steer,
-    joystick_consume_press, joystick_btn, joystick_menu_x, joystick_menu_y, joystick_clear_latch, JS_SW,
+    joystick_consume_press, joystick_menu_x, joystick_menu_y, joystick_clear_latch,
     motor_init, motor_stop, motor_rumble, motor_update, motor_cancel,
+    reset_btn_init, reset_btn_poll, reset_btn_stop,
 )
-
-os.putenv('SDL_VIDEODRIVER', 'fbcon')
-os.putenv('SDL_FBDEV', '/dev/fb0')
-os.putenv('SDL_MOUSEDRV', 'dummy')
-os.putenv('MOUSEDEV', '/dev/null')
-os.putenv('DISPLAY', '')
 
 DEBUG = 'debug' in sys.argv
 HOST_IP = '127.0.0.1' if DEBUG else '192.168.50.1'
 
 if not DEBUG:
+    os.putenv('SDL_VIDEODRIVER', 'fbcon')
+    os.putenv('SDL_FBDEV', '/dev/fb0')
+    os.putenv('SDL_MOUSEDRV', 'dummy')
+    os.putenv('MOUSEDEV', '/dev/null')
+    os.putenv('DISPLAY', '')
+
+if not DEBUG:
     joystick_init()
     motor_init()
+    reset_btn_init()
 
 
 def log(msg: str):
@@ -269,7 +272,6 @@ accept_result_q = queue.Queue()
 input_q = queue.Queue()
 state_q = queue.Queue()
 last_client_input = {'throttle': 0, 'steer': 0, 'activate': False}
-p2_prev_activate = False
 p2_collided = False
 p2_shell_hit = False
 
@@ -401,6 +403,11 @@ running = True
 while running:
     dt = min(clock.tick(FPS) / 1000.0, MAX_PHYSICS_DT)
 
+    # GPIO 17 reset button: force-restart to map selection from game or post-race
+    if not DEBUG and reset_btn_poll():
+        if current_state in (STATE_GAME, STATE_POST_RACE):
+            begin_race(None, replay=True)
+
     # accept a pending client connection if one is ready
     if current_state == STATE_WAITING:
         try:
@@ -422,6 +429,8 @@ while running:
                                                   MAP_ROW_TOP + i * MAP_ROW_SPACING,
                                                   width=MAP_ROW_WIDTH, height=MAP_ROW_HEIGHT)
                                  for i in range(len(map_names))]
+                if not DEBUG:
+                    joystick_clear_latch()
                 current_state = STATE_MAP_SELECT
         except queue.Empty:
             pass
@@ -435,6 +444,10 @@ while running:
                 disconnect('Connection lost.')
             else:
                 last_client_input = item
+                # client GPIO 17 pressed: force-restart to map selection
+                if last_client_input.get('reset') and current_state in (STATE_GAME, STATE_POST_RACE):
+                    begin_race(None, replay=True)
+                    last_client_input = {'throttle': 0, 'steer': 0, 'activate': False}
         except queue.Empty:
             pass
 
@@ -473,6 +486,8 @@ while running:
                     return_to_menu()
                 else:
                     running = False
+            elif DEBUG and key == pygame.K_r and current_state in (STATE_GAME, STATE_POST_RACE):
+                begin_race(None, replay=True)
             elif current_state == STATE_MENU:
                 if key in (pygame.K_UP, pygame.K_DOWN):
                     menu_sel = 1 - menu_sel
@@ -566,21 +581,31 @@ while running:
         # input: read p1 from joystick or debug keyboard, p2 from latest network packet
         if DEBUG:
             p1.handle_input()
-            if pygame.key.get_pressed()[pygame.K_SPACE] and not p1.race_finished:
+            if p1.race_finished:
+                p1.throttle_input = 0.0
+                p1.steer_input = 0.0
+            elif pygame.key.get_pressed()[pygame.K_SPACE]:
                 activate_consumable(p1, p2, shells, owner_index=0)
         else:
-            p1.throttle_input = -joystick_throttle()
-            p1.steer_input = joystick_steer()
-            if joystick_btn(JS_SW) and not p1.race_finished:
-                activate_consumable(p1, p2, shells, owner_index=0)
-                motor_rumble()
+            if p1.race_finished:
+                p1.throttle_input = 0.0
+                p1.steer_input = 0.0
+            else:
+                p1.throttle_input = -joystick_throttle()
+                p1.steer_input = joystick_steer()
+                if joystick_consume_press():
+                    activate_consumable(p1, p2, shells, owner_index=0)
+                    motor_rumble()
 
-        p2.throttle_input = float(last_client_input.get('throttle', 0))
-        p2.steer_input = float(last_client_input.get('steer', 0))
-        p2_act = bool(last_client_input.get('activate', False))
-        if p2_act and not p2_prev_activate and not p2.race_finished:
-            activate_consumable(p2, p1, shells, owner_index=1)
-        p2_prev_activate = p2_act
+        if p2.race_finished:
+            p2.throttle_input = 0.0
+            p2.steer_input = 0.0
+        else:
+            p2.throttle_input = float(last_client_input.get('throttle', 0))
+            p2.steer_input = float(last_client_input.get('steer', 0))
+            p2_act = bool(last_client_input.get('activate', False))
+            if p2_act:
+                activate_consumable(p2, p1, shells, owner_index=1)
 
         # physics + tile effects
         p1.update_physics(dt)
@@ -642,6 +667,8 @@ while running:
             if fin:
                 p.finish_place = next_finish_place
                 next_finish_place += 1
+                if not DEBUG:
+                    motor_cancel()
 
         # p1 timers (only while still racing)
         if not p1.race_finished:
@@ -652,13 +679,13 @@ while running:
             p1_lap_timer += dt
 
         # wall and vehicle-vehicle collisions; rumble on any p1 collision
-        if p1.resolve_collisions(game_map, tri_masks, player_mask) and not DEBUG:
+        if p1.resolve_collisions(game_map, tri_masks, player_mask) and not DEBUG and not p1.race_finished:
             motor_rumble()
         p2_wall_hit = p2.resolve_collisions(game_map, tri_masks, player_mask)
         vehicle_hit = resolve_vehicle_collision(p1, p2)
         if vehicle_hit:
             p2_collided = True
-            if not DEBUG:
+            if not DEBUG and not p1.race_finished:
                 motor_rumble()
         if p2_wall_hit:
             p2_collided = True
@@ -666,6 +693,8 @@ while running:
         # transition to post-race once both players have finished
         if p1.race_finished and p2.race_finished:
             current_state = STATE_POST_RACE
+            if not DEBUG:
+                joystick_clear_latch()
 
         # per-frame track history sampling
         track_record = p1.tick_track_history() or p2.tick_track_history()
@@ -703,4 +732,5 @@ close_server()
 if not DEBUG:
     joystick_stop()
     motor_stop()
+    reset_btn_stop()
 sys.exit()
