@@ -323,25 +323,24 @@ while running:
             p2_lap_timer += dt
 
     # build and send the latest input packet (joystick or debug keyboard)
-    if current_state == STATE_GAME and latest_countdown <= 0.0 and not p2_race_finished:
-        if pending_reset:
-            flush_queue(input_q)
-            input_q.put({'reset': True})
-            pending_reset = False
+    if current_state == STATE_GAME and pending_reset:
+        flush_queue(input_q)
+        input_q.put({'reset': True})
+        pending_reset = False
+    elif current_state == STATE_GAME and latest_countdown <= 0.0 and not p2_race_finished:
+        if DEBUG:
+            keys = pygame.key.get_pressed()
+            throttle = float(int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]))
+            steer = float(int(keys[KEY_RIGHT]) - int(keys[KEY_LEFT]))
+            activate = bool(keys[pygame.K_SPACE])
         else:
-            if DEBUG:
-                keys = pygame.key.get_pressed()
-                throttle = float(int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]))
-                steer = float(int(keys[KEY_RIGHT]) - int(keys[KEY_LEFT]))
-                activate = bool(keys[pygame.K_SPACE])
-            else:
-                throttle = joystick_throttle()
-                steer = joystick_steer()
-                activate = joystick_consume_press()
-                if activate:
-                    motor_rumble()
-            flush_queue(input_q)
-            input_q.put({'throttle': throttle, 'steer': steer, 'activate': activate})
+            throttle = joystick_throttle()
+            steer = joystick_steer()
+            activate = joystick_consume_press()
+            if activate:
+                motor_rumble()
+        flush_queue(input_q)
+        input_q.put({'throttle': throttle, 'steer': steer, 'activate': activate})
 
     if current_state == STATE_POST_RACE and pending_reset:
         flush_queue(input_q)
