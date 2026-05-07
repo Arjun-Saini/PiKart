@@ -168,6 +168,7 @@ connect_result_q = queue.Queue()
 input_q = queue.Queue()
 state_q = queue.Queue()
 sock: socket.socket | None = None
+pending_reset = False
 
 KEY_FORWARD, KEY_BACK, KEY_LEFT, KEY_RIGHT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT
 
@@ -226,8 +227,7 @@ while running:
     # GPIO 17 reset button: request host to force-restart to map selection
     if not DEBUG and reset_btn_poll():
         if current_state in (STATE_GAME, STATE_POST_RACE) and sock is not None:
-            flush_queue(input_q)
-            input_q.put({'reset': True})
+            pending_reset = True
 
     # connection result: promote the socket and start net threads, or surface a connect failure
     if current_state == STATE_WAITING and sock is None:
@@ -324,19 +324,29 @@ while running:
 
     # build and send the latest input packet (joystick or debug keyboard)
     if current_state == STATE_GAME and latest_countdown <= 0.0 and not p2_race_finished:
-        if DEBUG:
-            keys = pygame.key.get_pressed()
-            throttle = float(int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]))
-            steer = float(int(keys[KEY_RIGHT]) - int(keys[KEY_LEFT]))
-            activate = bool(keys[pygame.K_SPACE])
+        if pending_reset:
+            flush_queue(input_q)
+            input_q.put({'reset': True})
+            pending_reset = False
         else:
-            throttle = joystick_throttle()
-            steer = joystick_steer()
-            activate = joystick_consume_press()
-            if activate:
-                motor_rumble()
+            if DEBUG:
+                keys = pygame.key.get_pressed()
+                throttle = float(int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]))
+                steer = float(int(keys[KEY_RIGHT]) - int(keys[KEY_LEFT]))
+                activate = bool(keys[pygame.K_SPACE])
+            else:
+                throttle = joystick_throttle()
+                steer = joystick_steer()
+                activate = joystick_consume_press()
+                if activate:
+                    motor_rumble()
+            flush_queue(input_q)
+            input_q.put({'throttle': throttle, 'steer': steer, 'activate': activate})
+
+    if current_state == STATE_POST_RACE and pending_reset:
         flush_queue(input_q)
-        input_q.put({'throttle': throttle, 'steer': steer, 'activate': activate})
+        input_q.put({'reset': True})
+        pending_reset = False
 
     # joystick menu navigation
     if not DEBUG and current_state in (STATE_MENU, STATE_POST_RACE):
@@ -368,8 +378,7 @@ while running:
                 else:
                     running = False
             elif DEBUG and key == pygame.K_r and current_state in (STATE_GAME, STATE_POST_RACE) and sock is not None:
-                flush_queue(input_q)
-                input_q.put({'reset': True})
+                pending_reset = True
             elif current_state == STATE_MENU:
                 if key in (pygame.K_UP, pygame.K_DOWN):
                     menu_sel = 1 - menu_sel
