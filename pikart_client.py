@@ -133,8 +133,6 @@ button_font    = pygame.font.SysFont(None, 22)
 full_viewport = pygame.Rect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
 play_button_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 27)
 quit_button_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 + 27)
-post_race_again_rect = make_button_rect(VIEWPORT_WIDTH // 2 - 60, VIEWPORT_HEIGHT // 2 + 10,
-                                        width=100, height=30)
 post_race_menu_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 + 10,
                                        width=100, height=30)
 
@@ -362,7 +360,7 @@ while running:
             elif current_state == STATE_POST_RACE:
                 disconnect(None)
 
-    # keyboard and mouse event handling
+    # keyboard event handling
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -389,17 +387,6 @@ while running:
                         running = False
             elif current_state == STATE_POST_RACE:
                 if key == pygame.K_SPACE:
-                    disconnect(None)
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            pos = event.pos
-            if current_state == STATE_MENU:
-                if play_button_rect.collidepoint(pos):
-                    log("Play clicked")
-                    begin_connect()
-                elif quit_button_rect.collidepoint(pos):
-                    running = False
-            elif current_state == STATE_POST_RACE:
-                if post_race_menu_rect.collidepoint(pos):
                     disconnect(None)
 
     # menu / waiting render paths
@@ -442,7 +429,7 @@ while running:
         render_center_overlay_message(screen, 'GO!', countdown_font)
 
     if current_state == STATE_POST_RACE:
-        render_post_race(screen, post_race_again_rect, post_race_menu_rect,
+        render_post_race(screen, post_race_menu_rect, post_race_menu_rect,
                          title_font, button_font, post_sel, show_play_again=False)
 
     pygame.display.flip()

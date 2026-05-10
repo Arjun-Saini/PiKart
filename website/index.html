@@ -1,0 +1,2905 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="PiKart ECE 5725 Final Project">
+    <meta name="author" content="Arjun Saini, Tianyi Liu">
+    <title>PiKart &mdash; ECE 5725 Final Project</title>
+    <link href="dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="starter-template.css" rel="stylesheet">
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+
+    <nav class="navbar navbar-inverse navbar-fixed-top">
+      <div class="container">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+                  data-target="#navbar" aria-expanded="false" aria-controls="navbar">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="#">PiKart</a>
+        </div>
+        <div id="navbar" class="collapse navbar-collapse">
+          <ul class="nav navbar-nav">
+            <li class="active"><a href="#">Home</a></li>
+            <li><a href="#intro">Introduction</a></li>
+            <li><a href="#obj">Objective</a></li>
+            <li><a href="#design">Design &amp; Testing</a></li>
+            <li><a href="#result">Results</a></li>
+            <li><a href="#conclusions">Conclusions</a></li>
+            <li><a href="#future">Future Work</a></li>
+            <li><a href="#parts">Parts</a></li>
+            <li><a href="#refs">References</a></li>
+            <li><a href="#team">Team</a></li>
+            <li><a href="#code">Code</a></li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    <div class="container">
+
+      <div class="starter-template">
+        <h1>PiKart</h1>
+        <p class="lead">
+          2-Player Networked Racing Game<br>
+          Arjun Saini (ars437) &nbsp;&middot;&nbsp; Tianyi Liu (tl955)<br>
+          ECE 5725 &nbsp;&middot;&nbsp; May 2025
+        </p>
+      </div>
+
+      <hr>
+      <div class="center-block">
+        <iframe width="640" height="360"
+                src="https://www.youtube.com/embed?v=et91Gea6CPk"
+                frameborder="0" allowfullscreen></iframe>
+        <h4 style="text-align:center;">Demonstration Video</h4>
+      </div>
+
+      <!-- ===== INTRODUCTION ===== -->
+      <hr id="intro">
+      <div style="text-align:center;">
+        <h2>Introduction</h2>
+        <p style="text-align:left;padding:0px 30px;">
+          PiKart is a 2-player racing game inspired by Mario Kart, built in Python using
+          Pygame and designed to run on two Raspberry Pi 4 devices. We were motivated 
+          to build a project with a significant software component that also meaningfully
+          interacted with hardware, and that could take advantage of features specific to the
+          Raspberry Pi such as WiFi networking and GPIO. The goal was a fully functional
+          game where each player has their own handheld device and the two
+          units communicate over a network connection.
+        </p>
+        <div class="row" style="margin-bottom:20px;">
+          <div class="col-md-6" style="text-align:center;">
+            <img class="img-rounded" src="img/device_side.jpeg"
+                 alt="Side view of one PiKart handheld device" style="width:100%;">
+            <h4>Figure 1: Single player device, side view</h4>
+          </div>
+          <div class="col-md-6" style="text-align:center;">
+            <img class="img-rounded" src="img/devices_topdown.jpeg"
+                 alt="Top-down view of both PiKart devices" style="width:100%;">
+            <h4>Figure 2: Both devices, top-down view</h4>
+          </div>
+      </div>
+
+      <!-- ===== OBJECTIVE ===== -->
+      <hr id="obj">
+            <div style="text-align:center;">
+                <h2>Project Objective</h2>
+                <p style="text-align:left;padding:0px 30px;">
+                    Our goal was to build a polished, fully playable 2-player racing game running
+                    across two Raspberry Pi 4 devices communicating over a local WiFi network, with each
+                    player using a custom handheld controller featuring an analog joystick and haptic
+                    vibration feedback. The game needed to sustain 60&nbsp;FPS physics and rendering on
+                    the host Pi while maintaining sufficiently low network latency for responsive
+                    gameplay, and to support a complete game loop including menus, map selection, and racing.
+                    We additionally aimed to include Mario Kart gameplay elements such as
+                    powerups, speed tiles, and shell projectiles to go beyond a basic racing game.
+                </p>
+            </div>
+
+      <!-- ===== DESIGN AND TESTING ===== -->
+      <hr id="design">
+      <div style="text-align:center;">
+        <h2>Design &amp; Testing</h2>
+
+        <!-- Milestones -->
+        <h3 style="text-align:left;padding:0px 30px;">Development Milestones</h3>
+        <p style="text-align:left;padding:0px 30px;">
+          Development proceeded through three major milestones. The first was a functional
+          single-player racing game running in debug mode on a laptop, with keyboard
+          controls, collision, lap counting, and the full menu flow.
+          The second milestone was a 2-player game running as a single split-screen
+          application on the same laptop, with both players sharing the same physics simulation
+          and controlled via keyboard. This milestone validated the overall game loop, rendering
+          pipeline, and all gameplay features before any networking or hardware was involved.
+          The third and final milestone was the full 2-player game running across two Pi
+          devices over the network, with the dedicated WiFi access point on the host, hardware
+          joystick and motor I/O on both units, and automatic startup via systemd and crontab.
+        </p>
+
+        <!-- System Architecture -->
+        <h3 style="text-align:left;padding:0px 30px;">System Architecture</h3>
+        <p style="text-align:left;padding:0px 30px;">
+          The codebase is organized into three modules. <code>pikart_shared.py</code> contains
+          all shared constants, game object classes (<code>Vehicle</code>, <code>Shell</code>,
+          <code>PowerupSpawner</code>, <code>Map</code>, <code>Camera</code>), physics helpers,
+          render helpers, and all hardware I/O routines for the joystick, vibration motor, and
+          reset button. <code>pikart_host.py</code> runs on the host, which acts as both the WiFi
+          access point and the game server. It steps the physics simulation at
+          60&nbsp;FPS, processes player inputs, manages all game state transitions, and
+          serializes the game state into JSON packets sent to the client
+          each frame. <code>pikart_client.py</code> runs on the client, connecting to the host over
+          TCP, reading incoming state packets, and rendering the game from the client player&rsquo;s
+          perspective, while sending its own joystick inputs back to the host.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          This separation ensures that all physics logic lives in exactly one place,
+          eliminating the possibility of inconsistent simulation on each device. The
+          client is essentially a display terminal only, and every frame it renders is guaranteed to
+          reflect the host&rsquo;s state.
+        </p>
+
+        <!-- Hardware -->
+        <h3 style="text-align:left;padding:0px 30px;">Hardware</h3>
+
+        <div class="row" style="margin-bottom:20px;">
+          <div class="col-md-6" style="text-align:center;">
+            <img class="img-rounded" src="img/wiring_diagram.jpeg"
+                 alt="Wiring diagram showing connections between Pi, cobbler, MCP3008 ADC, joystick, and vibration motor"
+                 style="width:100%;">
+            <h4>Figure 3: Wiring diagram for one player unit</h4>
+          </div>
+          <div class="col-md-6" style="text-align:center;">
+            <img class="img-rounded" src="img/enclosure_photo.jpeg"
+                 alt="Enclosure design"
+                 style="width:100%;">
+            <h4>Figure 4: Enclosure design</h4>
+          </div>
+        </div>
+
+        <p style="text-align:left;padding:0px 30px;">
+          Each player unit consists of a Raspberry Pi 4 paired with a PiTFT display,
+          cobbler breakout board, analog 2-axis joystick with push button, 
+          MCP3008 10-bit ADC, vibration motor, USB power bank, and 3D-printed enclosure. 
+          The joystick connects to the MCP3008 ADC, and the Pi communicates with the ADC over SPI.
+          The vibration motor is driven from a single GPIO output pin. The enclosure
+          houses and secures each component, to create
+          a self-contained handheld device.
+        </p>
+                <p style="text-align:left;padding:0px 30px;">
+                    All GPIO is managed through the <code>pigpio</code> library, which requires
+                    <code>pigpiod</code> running as a background daemon. Joystick input is read via a
+                    software SPI implementation that communicates with the MCP3008 ADC. A dedicated
+                    polling thread samples both axes at 100&nbsp;Hz and stores the raw 10-bit values
+                    with a lock, converting them to a normalized float in the range [-1, 1].
+                    Button presses are edge-detected and latched in the polling
+                    thread, then consumed atomically by the main loop on the next frame to prevent missed
+                    presses in between frames.
+                </p>
+                <p style="text-align:left;padding:0px 30px;">
+                    The vibration motor is driven by writing a 1-bit value to a GPIO output pin. A vibration is triggered by setting a deadline timestamp, where
+                    an update function turns the motor off once the deadline elapses, producing a
+                    fixed-duration pulse. GPIO 17 on the PiTFT is configured as a pull-up input and polled each
+                    frame as a hardware reset button that immediately restarts the current race.
+                </p>
+                <p style="text-align:left;padding:0px 30px;">
+                    The first significant hardware challenge was unreliable joystick readings caused by
+                    poor contact between the joystick pins and breakout board.
+                    This resulted in erratic readings and incorrect button presses during initial
+                    testing. Soldering the connections directly resolved this. A second recurring issue
+                    was occasional undervolting of both Pis, caused by insufficient power bank output or poor
+                    USB cable quality. Undervolting produced WiFi connectivity issues and clock
+                    instability. Swapping the cables and power supplies reduced the frequency of undervolting,
+                    but did not eliminate the issue entirely.
+                </p>
+
+        <!-- Map System -->
+        <h3 style="text-align:left;padding:0px 30px;">Map Creation</h3>
+
+        <div style="text-align:center;margin-bottom:20px;">
+          <img class="img-rounded" src="img/map_pipeline.jpeg"
+               alt="Three-step map creation pipeline: source PNG, generated map, and final hand-edited map"
+               style="width:80%;">
+          <h4>Figure 5: Map creation pipeline: source PNG, generated map, and final hand-edited map</h4>
+        </div>
+
+        <p style="text-align:left;padding:0px 30px;">
+          Maps are stored as text files where each character encodes a tile type:
+          &lsquo;<code>#</code>&rsquo; for walls, &lsquo;<code>|</code>&rsquo; for the finish
+          line, &lsquo;<code>1</code>&rsquo; and &lsquo;<code>2</code>&rsquo; for player spawn
+          points, &lsquo;<code>*</code>&rsquo; and &lsquo;<code>+</code>&rsquo; for speed-boost
+          and slowdown tiles, &lsquo;<code>@</code>&rsquo; for powerup spawners, and
+          &lsquo;<code>&lt;</code>&rsquo;, &lsquo;<code>&gt;</code>&rsquo;,
+          &lsquo;<code>^</code>&rsquo;, &lsquo;<code>v</code>&rsquo; for directional arrow
+          tiles. A helper script, <code>create_map.py</code>, converts a PNG image
+          into this text format by mapping pixel opacity to either wall or empty tiles.
+          Then, the remaining tiles can be hand placed to create the final map.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          At load time, the map parser runs a pass over the loaded map to smooth diagonal tiles.
+          Whenever there are two diagonal square wall tiles, triangle wall tiles are filled in the
+          diagonals to create a smooth track boundary.
+        </p>
+
+        <!-- Physics -->
+        <h3 style="text-align:left;padding:0px 30px;">Physics and Collision Detection</h3>
+
+        <p style="text-align:left;padding:0px 30px;">
+          Vehicle physics simulate linear and angular acceleration and velocity each frame, with
+          configurable acceleration drag parameters. Velocities are also clamped to prevent
+          excessive speed and rotations. Additionally, there is a maximum physics 
+          delta time to avoid frame drops causing unexpected physics behavior.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          Collision detection checks rectangular bounding boxes against every tile overlapping
+          the vehicle&rsquo;s rect. For diagonal tiles, there is an additional
+          check with a triangular mask so vehicles can enter the open corner of a diagonal tile without bouncing off
+          empty space. When a collision is confirmed, a minimum translation vector pushes the
+          vehicle out by the collision depth and reflects the velocity component along the
+          contact normal. This occurs in a loop until all vehicle/wall collisions are resolved. 
+          Speed boost and slowdown
+          tiles modify the vehicle&rsquo;s speed each frame it remains on the tile. Shells
+          bounce off walls using the same normal-reflection approach, and red shells
+          additionally home toward the opposing player by rotating their heading toward the
+          target each frame.
+        </p>
+
+        <!-- Rendering -->
+        <h3 style="text-align:left;padding:0px 30px;">Rendering and HUD</h3>
+
+        <div style="text-align:center;margin-bottom:20px;">
+        <img class="img-rounded" src="img/hud_screenshot.jpeg"
+            alt="In-game view showing the rotating camera, lap counter, timers, minimap, and powerup indicator"
+            style="width:30%;">
+          <h4>Figure 6: In-game HUD during a race</h4>
+        </div>
+
+        <p style="text-align:left;padding:0px 30px;">
+          Each player&rsquo;s PiTFT displays a full-screen viewport centered on their own
+          vehicle, with the camera rotating so the vehicle&rsquo;s current heading always
+          points upward on screen. Game objects such as shells, spawners, and tire tracks are
+          drawn at their correct world positions relative to the camera each frame. Tire tracks
+          are rendered by storing each vehicle&rsquo;s position periodically into a rolling
+          buffer, then drawing small colored squares at each stored position.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          The HUD is drawn in screen space on top of the viewport each frame. It includes a
+          lap counter showing current and total laps, a total race timer and a per-lap split
+          timer, the player&rsquo;s currently held powerup, and a live minimap in the corner
+          showing both vehicle positions scaled onto the full track. The game also renders a
+          3-second countdown before the race begins and a post-race overlay displaying
+          finish placement with options to replay or return to the menu.
+        </p>
+
+        <!-- Networking -->
+        <h3 style="text-align:left;padding:0px 30px;">Networking</h3>
+
+        <p style="text-align:left;padding:0px 30px;">
+          Networking uses a TCP connection with length-prefixed JSON framing: a 4-byte
+          big-endian header encodes the payload length, followed by the JSON body. 
+          Send and receive threads run on both the host
+          and the client, on separate threads from the main loop. The separation of these threads is essential,
+          since otherwise, poor network latency would cause stalling of the framerate and game logic.
+          All outbound packets are placed
+          into a thread-safe synchronous queue by the main loop and consumed by the send thread,
+          and similarly inbound packets are placed into the queue by the receive thread
+          and then consumed by the main loop.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          The host is configured as a WiFi access point using <code>dhcpcd</code>, <code>hostapd</code>, and
+          <code>dnsmasq</code>, with a static IP of 192.168.50.1 and SSID &ldquo;PiKart&rdquo;.
+          The client connects automatically via <code>wpa_supplicant</code> on boot. These programs
+          are launched via <code>systemd</code> services to ensure correct boot order.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          The sample packets below show the structure of communication between host and client, in each direction. The host broadcasts a
+          game state packet every frame, including positions and headings for both
+          vehicles, all active shells and spawner states, and event flags that trigger
+          client-side effects such as vibration. The client sends an input packet every
+          frame containing the two joystick axes and button state.
+        </p>
+
+        <div class="row" style="text-align:left;">
+          <div class="col-md-7">
+            <p style="text-align:left;"><strong>Host &rarr; Client:</strong></p>
+            <pre><code>{
+  &quot;state&quot;: &quot;racing&quot;,
+  &quot;countdown&quot;: 0.0,
+  &quot;go&quot;: false,
+  &quot;track&quot;: false,
+  &quot;p1&quot;: {
+    &quot;x&quot;: 432.716, &quot;y&quot;: 318.042, &quot;heading&quot;: 1.5708,
+    &quot;lap&quot;: 2, &quot;place&quot;: 0, &quot;powerup&quot;: &quot;shell_green&quot;, &quot;size&quot;: 1.0
+  },
+  &quot;p2&quot;: {
+    &quot;x&quot;: 485.391, &quot;y&quot;: 301.874, &quot;heading&quot;: 1.3219,
+    &quot;lap&quot;: 2, &quot;place&quot;: 0, &quot;powerup&quot;: null, &quot;size&quot;: 1.0
+  },
+  &quot;shells&quot;: [
+    {&quot;type&quot;: &quot;shell_green&quot;, &quot;x&quot;: 461.0, &quot;y&quot;: 325.5}
+  ],
+  &quot;spawners&quot;: [
+    {&quot;x&quot;: 400.0, &quot;y&quot;: 288.0, &quot;occupied&quot;: true}
+  ],
+  &quot;p2_collided&quot;: false,
+  &quot;p2_shell_hit&quot;: false
+}</code></pre>
+          </div>
+          <div class="col-md-5">
+            <p style="text-align:left;"><strong>Client &rarr; Host:</strong></p>
+            <pre><code>{
+  &quot;throttle&quot;: 1.0,
+  &quot;steer&quot;: -0.72,
+  &quot;activate&quot;: false
+}</code></pre>
+          </div>
+        </div>
+
+        <p style="text-align:left;padding:0px 30px;">
+          The most significant software challenge we encountered was packet latency. In initial
+          testing on Pi hardware, observed round-trip time was over 500&nbsp;ms, which made the
+          game unplayable. This turned out to be caused by two factors: a WiFi
+          round-trip time of approximately 150&nbsp;ms during a congested lab session, and
+          Python&rsquo;s default TCP socket behavior of batching small packets. Disabling batching with <code>TCP_NODELAY</code> forced each
+          outbound packet to be senst immediately, and decoupling the network threads
+          from the render loop ensured packets were not delayed and did not interfere with game logic. After
+          both fixes, observed latency under ideal network conditions dropped below 20&nbsp;ms.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          A second networking problem was that the access point on the host would intermittently
+          fail to broadcast. The root cause was that <code>wpa_supplicant</code> and the
+          default P2P network interface on the host both attempted to claim <code>wlan0</code>,
+          conflicting with <code>hostapd</code>. Blocking <code>wpa_supplicant</code> and the
+          P2P interface from accessing <code>wlan0</code> on the host resolved the issue.
+        </p>
+
+        <!-- Testing -->
+        <h3 style="text-align:left;padding:0px 30px;">Testing</h3>
+
+        <p style="text-align:left;padding:0px 30px;">
+          We incorporated a debug mode (enabled by passing <code>debug</code> to either program) so the
+          host and client could run on a single device with keyboard input and a desktop window. 
+          This enabled rapid iteration on physics, rendering, and
+          network state behavior through localhost, and allowed us to verify correctness under ideal conditions
+          before trying to optimize the code.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          To verify tile interactions, we created a debug map that
+          placed one instance of every tile type, such as a wall segment, a diagonal wall
+          corner, a speed-boost tile, a slowdown tile, a finish line crossing, a powerup
+          spawner, and each directional arrow tile orientation. This allowed us to drive a
+          vehicle onto each tile type independently and confirm the expected physics or
+          interaction response before testing on a full racetrack. Edge cases such as
+          simultaneous contact with both a wall tile and a diagonal tile, and finish-line
+          crossings at various angles, were also validated this way.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          To validate network behavior, we measured the average ping round-trip time to the
+          host device and compared it directly against the observed per-frame packet delivery
+          latency in-game, confirming that the software was not introducing meaningful
+          additional delay beyond what the network itself contributed. Before the packet batching and
+          thread decoupling fixes, in-game latency was significantly higher than ping alone
+          explained, which identified the software as the source of the excess delay. After the
+          fixes, in-game packet latency matched the underlying ping baseline closely.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          For hardware I/O, we developed dedicated test scripts for the joystick and ADC and
+          for the vibration motor, validating each before integrating them into
+          the main codebase. The joystick test script printed raw 10-bit ADC values and the
+          derived steering and throttle floats at 100&nbsp;Hz, which allowed us to 
+          confirm the proper interpretation of joystick movement and button presses.
+          The motor test script toggled the motor on and off with a configurable pulse duration,
+          which we used to confirm that the pulse
+          timing matched the configured value before relying on it in gameplay.
+        </p>
+
+      </div>
+
+      <!-- ===== RESULTS ===== -->
+      <hr id="result">
+      <div style="text-align:center;">
+        <h2>Results</h2>
+        <p style="text-align:left;padding:0px 30px;">
+          PiKart met all of its original goals. The game runs at a stable 60&nbsp;FPS, with physics, collisions, state
+          serialization, and rendering all completing within the frame budget. Network latency
+          on the dedicated PiKart access point in an uncontested environment remained
+          consistently below 20&nbsp;ms, producing gameplay that was subjectively responsive
+          and snappy for the client. Both units booted and connected to each other automatically within
+          approximately 15 seconds of being powered on, with no manual configuration required.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          All major gameplay features functioned as intended during the demo: joystick steering
+          and throttle, vibration feedback on collision and shell hits, speed-boost and slowdown
+          tiles, powerup spawners with respawn cooldowns, green and red shell projectiles, tire
+          track rendering, the minimap HUD with live vehicle positions, the pre-race countdown,
+          and the post-race screen with correct finish ordering and replay navigation. The race
+          concluded reliably after three laps in all test runs. The 3D-printed enclosures
+          housed all electronics cleanly, and the finished devices function as handheld
+          game controllers.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          The primary unresolved limitation was undervolting, which caused various hardware issues
+          that often required a device restart to fix. WiFi congestion in the lab sometimes drove ping
+          to around 150&nbsp;ms, introducing noticeable input lag for the client, but not
+          breaking the game loop.
+        </p>
+      </div>
+
+      <!-- ===== CONCLUSIONS ===== -->
+      <hr id="conclusions">
+      <div style="text-align:center;">
+        <h2>Conclusions</h2>
+        <p style="text-align:left;padding:0px 30px;">
+          The client-server architecture worked well: by keeping all physics logic on the host,
+          we avoided synchronization complexity entirely and were able to implement the full
+          feature set without concern for state divergence on the client. The PNG map conversion
+          tool also worked well, significantly reducing the effort required to create new tracks.
+          Having a debug mode to run the full game on a laptop was invaluable throughout
+          development, allowing us to iterate quickly without requiring physical hardware at
+          every step.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          On the hardware side, joystick connectivity was an ongoing challenge due to the loose
+          ribbon cable and small breadboard contacts, which required soldering to stabilize.
+          Occasional undervolting on the client device also persisted throughout the project, causing
+          intermittent WiFi connectivity issues and system clock inaccuracies that we were
+          never able to fully eliminate.
+        </p>
+      </div>
+
+      <!-- ===== FUTURE WORK ===== -->
+      <hr id="future">
+      <div style="text-align:center;">
+        <h2>Future Work</h2>
+        <p style="text-align:left;padding:0px 30px;">
+          The most impactful hardware improvement would be replacing the current jumper wire
+          assembly with a soldered prototyping board or a custom PCB, which would improve
+          system stability and reliability. In parallel, we would iterate on the enclosure
+          design, as the current version was constrained by the breadboard form factor.
+        </p>
+        <p style="text-align:left;padding:0px 30px;">
+          On the software side, we would explore predictive rendering on the client to improve
+          responsiveness even under poor network conditions, at the cost of jitter when syncing
+          physics. We would also add support for more than two players and include an option
+          for AI opponents.
+        </p>
+      </div>
+
+      <!-- ===== PARTS LIST ===== -->
+      <hr id="parts">
+      <div style="font-size:18px;text-align:left;">
+        <h2>Parts List</h2>
+        <ul>
+          <li>2&times; Raspberry Pi 4 + Cobbler Breakout Board + PiTFT Display: provided in lab</li>
+          <li>2&times; 10,000 mAh power bank: provided in lab</li>
+          <li>2&times; Analog 2-Axis Thumb Joystick: $6.00</li>
+          <li>2&times; 10-Bit ADC: $4.00</li>
+          <li>2&times; Vibration Motor: $2.00</li>
+          <li>2&times; 3D printed enclosure</li>
+        </ul>
+      </div>
+
+      <!-- ===== REFERENCES ===== -->
+      <hr id="refs">
+      <div style="font-size:18px;text-align:left;">
+        <h2>References</h2>
+        <a href="https://ww1.microchip.com/downloads/en/DeviceDoc/21295d.pdf">MCP3008 10-Bit A/D Converter Datasheet &mdash; Microchip Technology</a><br>
+        <a href="https://datasheets.raspberrypi.com/rpi4/raspberry-pi-4-datasheet.pdf">Raspberry Pi 4 Model B Datasheet</a><br>
+        <a href="https://cdn-shop.adafruit.com/product-files/2648/2648_datasheet.pdf">Adafruit PiTFT 2.8&rdquo; Display Datasheet</a><br>
+        <a href="https://www.pygame.org/docs/">Pygame Documentation</a><br>
+        <a href="https://docs.python.org/3/library/socket.html">Python <code>socket</code> Module Documentation</a><br>
+        <a href="https://www.freedesktop.org/software/systemd/man/systemd.service.html">systemd Service Unit Documentation</a><br>
+        <a href="https://cdn-learn.adafruit.com/downloads/pdf/setting-up-a-raspberry-pi-as-a-wifi-access-point.pdf">Adafruit WiFi Access Point Setup Guide</a><br>
+        <a href="https://www.adafruit.com/product/512#technical-details">Adafruit Analog 2-Axis Thumb Joystick</a><br>
+        Claude Sonnet 4.6: used for planning, debugging, and code review
+      </div>
+
+      <!-- ===== TEAM CONTRIBUTIONS ===== -->
+      <hr id="team">
+      <div class="row" style="text-align:center;">
+        <h2>Team Contributions</h2>
+        <div style="font-size:16px;padding:20px 30px;text-align:left;">
+          <p>
+            We both contributed equally, to different aspects of the project. Arjun had a
+            software focus, including physics, rendering, and networking. Tianyi had a hardware
+            focus, including soldering, 3D design and printing, and writing I/O code for the
+            joystick and motor. This distribution allowed us to efficiently complete our
+            individual assignments and then integrate our work together at each milestone.
+          </p>
+        </div>
+      </div>
+
+      <!-- ===== CODE APPENDIX ===== -->
+      <hr id="code">
+      <div class="row">
+        <h2>Code Appendix</h2>
+        <h3>pikart_shared.py</h3>
+        <pre><code>from __future__ import annotations
+import collections
+import json
+import math
+import os
+import queue
+import random
+import socket
+import struct
+import threading
+import time
+
+import pygame
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+HOST_IP = &#x27;192.168.50.1&#x27;
+HOST_PORT = 55000
+
+VIEWPORT_WIDTH = 320
+VIEWPORT_HEIGHT = 240
+FPS = 60
+
+STATE_MENU = &#x27;menu&#x27;
+STATE_WAITING = &#x27;waiting&#x27;
+STATE_GAME = &#x27;game&#x27;
+STATE_POST_RACE = &#x27;post_race&#x27;
+
+TOTAL_LAPS = 3
+MAX_PHYSICS_DT = 1.0 / 30.0
+
+TILE_SIZE = 8
+
+PLAYER_SIZE = 8
+PLAYER_ACCEL = 450.0
+PLAYER_DRAG = 2.0
+PLAYER_MAX_SPEED_SAFETY = 500.0
+PLAYER_RESTITUTION = 0.3
+COLLISION_SLOP = 0.05
+MAX_COLLISION_PASSES = 2
+PLAYER_ANG_ACCEL = 10.0
+PLAYER_ANG_DAMP = 5.0
+PLAYER_MAX_ANG_VEL = 4.5
+
+MOTOR_GPIO = 22
+RUMBLE_DURATION = 0.12
+RESET_GPIO = 17
+
+BOOST_TILE_DELTA = 200.0
+SLOWDOWN_TILE_DELTA = 200.0
+TRACK_HISTORY_MAX = 10
+TRACK_HISTORY_INTERVAL = 15
+MINIMAP_W = 60
+MINIMAP_H = 50
+MINIMAP_MARGIN = 4
+MINIMAP_SPRITE_SIZE = 8
+POWERUP_SIZE_SCALE = 2.0
+POWERUP_SIZE_DURATION = 5.0
+SHELL_SIZE = PLAYER_SIZE
+SHELL_SPEED = 300.0
+RED_SHELL_TURN = math.pi
+SPAWNER_RESPAWN_COOLDOWN = 5.0
+
+FINISH_TILE_COUNT = 7
+
+# =============================================================================
+# Colors
+# =============================================================================
+
+COLOR_WHITE         = (255, 255, 255)
+COLOR_BLACK         = (  0,   0,   0)
+COLOR_GREY_LIGHT    = (160, 160, 160)
+COLOR_GREY_MID      = (180, 180, 180)
+COLOR_BACKGROUND    = ( 30,  30,  30)
+COLOR_OPEN          = (255, 255, 255)
+COLOR_WALL          = (  0,   0,   0)
+COLOR_POWERUP1      = (255, 220,   0)
+COLOR_POWERUP2      = (120, 220, 255)
+COLOR_SPAWNER       = (180,  80, 220)
+COLOR_SPAWNER_EMPTY = ( 80,  40,  80)
+COLOR_SHELL_GREEN   = ( 40, 200,  40)
+COLOR_SHELL_RED     = (220,  40,  40)
+COLOR_PLAYER        = (220,  30,  30)
+COLOR_PLAYER2       = ( 30, 100, 220)
+COLOR_FINISH        = (180, 180, 180)
+COLOR_ERROR         = (220,  60,  60)
+COLOR_TRACK_P1      = (180, 120, 120)
+COLOR_TRACK_P2      = (120, 120, 180)
+BTN_BG              = ( 50,  50,  80)
+BTN_BG_HOVER        = ( 80,  80, 130)
+BTN_BORDER          = (120, 120, 180)
+BTN_FG              = COLOR_WHITE
+
+# =============================================================================
+# Tile registry
+# =============================================================================
+
+TILE_TYPE_INFO = {
+    &#x27;open&#x27;:             {&#x27;color&#x27;: COLOR_OPEN, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;rect&#x27;},
+    &#x27;wall&#x27;:             {&#x27;color&#x27;: COLOR_WALL, &#x27;is_wall&#x27;: True, &#x27;shape&#x27;: &#x27;rect&#x27;},
+    &#x27;powerup1&#x27;:         {&#x27;color&#x27;: COLOR_POWERUP1, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;rect&#x27;},
+    &#x27;powerup2&#x27;:         {&#x27;color&#x27;: COLOR_POWERUP2, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;rect&#x27;},
+    &#x27;spawner&#x27;:          {&#x27;color&#x27;: COLOR_SPAWNER, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;rect&#x27;},
+    &#x27;player1_spawn&#x27;:    {&#x27;color&#x27;: COLOR_OPEN, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;rect&#x27;},
+    &#x27;player2_spawn&#x27;:    {&#x27;color&#x27;: COLOR_OPEN, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;rect&#x27;},
+    &#x27;finish_line&#x27;:      {&#x27;color&#x27;: COLOR_FINISH, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;rect&#x27;},
+    &#x27;tri_top_left&#x27;:     {&#x27;color&#x27;: COLOR_WALL, &#x27;is_wall&#x27;: True, &#x27;shape&#x27;: &#x27;tri&#x27;, &#x27;points&#x27;: ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0))},
+    &#x27;tri_top_right&#x27;:    {&#x27;color&#x27;: COLOR_WALL, &#x27;is_wall&#x27;: True, &#x27;shape&#x27;: &#x27;tri&#x27;, &#x27;points&#x27;: ((1.0, 0.0), (1.0, 1.0), (0.0, 0.0))},
+    &#x27;tri_bottom_left&#x27;:  {&#x27;color&#x27;: COLOR_WALL, &#x27;is_wall&#x27;: True, &#x27;shape&#x27;: &#x27;tri&#x27;, &#x27;points&#x27;: ((0.0, 1.0), (1.0, 1.0), (0.0, 0.0))},
+    &#x27;tri_bottom_right&#x27;: {&#x27;color&#x27;: COLOR_WALL, &#x27;is_wall&#x27;: True, &#x27;shape&#x27;: &#x27;tri&#x27;, &#x27;points&#x27;: ((1.0, 1.0), (1.0, 0.0), (0.0, 1.0))},
+    &#x27;arrow_left&#x27;:  {&#x27;color&#x27;: COLOR_OPEN, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;arrow&#x27;, &#x27;direction&#x27;: &#x27;left&#x27;},
+    &#x27;arrow_right&#x27;: {&#x27;color&#x27;: COLOR_OPEN, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;arrow&#x27;, &#x27;direction&#x27;: &#x27;right&#x27;},
+    &#x27;arrow_up&#x27;:    {&#x27;color&#x27;: COLOR_OPEN, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;arrow&#x27;, &#x27;direction&#x27;: &#x27;up&#x27;},
+    &#x27;arrow_down&#x27;:  {&#x27;color&#x27;: COLOR_OPEN, &#x27;is_wall&#x27;: False, &#x27;shape&#x27;: &#x27;arrow&#x27;, &#x27;direction&#x27;: &#x27;down&#x27;},
+}
+
+CHAR_TO_TILE_TYPE = {
+    &#x27;#&#x27;: &#x27;wall&#x27;, 
+    &#x27;*&#x27;: &#x27;powerup1&#x27;, 
+    &#x27;+&#x27;: &#x27;powerup2&#x27;, 
+    &#x27;@&#x27;: &#x27;spawner&#x27;,
+    &#x27;1&#x27;: &#x27;player1_spawn&#x27;, 
+    &#x27;2&#x27;: &#x27;player2_spawn&#x27;, 
+    &#x27;|&#x27;: &#x27;finish_line&#x27;,
+    &#x27;&lt;&#x27;: &#x27;arrow_left&#x27;, 
+    &#x27;&gt;&#x27;: &#x27;arrow_right&#x27;, 
+    &#x27;^&#x27;: &#x27;arrow_up&#x27;, 
+    &#x27;v&#x27;: &#x27;arrow_down&#x27;,
+}
+
+# =============================================================================
+# Consumable powerup registry
+# =============================================================================
+
+POWERUP_SIZE_GROW = &#x27;size_grow&#x27;
+POWERUP_SIZE_SHRINK = &#x27;size_shrink&#x27;
+POWERUP_GREEN_SHELL = &#x27;green_shell&#x27;
+POWERUP_RED_SHELL = &#x27;red_shell&#x27;
+
+CONSUMABLE_POOL = [POWERUP_SIZE_GROW, POWERUP_SIZE_SHRINK, POWERUP_GREEN_SHELL, POWERUP_RED_SHELL]
+
+POWERUP_LABEL = {
+    POWERUP_SIZE_GROW:   &#x27;GROW&#x27;,
+    POWERUP_SIZE_SHRINK: &#x27;SHRINK&#x27;,
+    POWERUP_GREEN_SHELL: &#x27;GREEN&#x27;,
+    POWERUP_RED_SHELL:   &#x27;RED&#x27;,
+}
+
+# =============================================================================
+# Network helpers
+# =============================================================================
+
+# sentinel placed on a queue to signal thread shutdown
+DISCONNECTED = object()
+
+
+# drains a queue without processing items
+def flush_queue(q: queue.Queue):
+    while True:
+        try: q.get_nowait()
+        except queue.Empty: break
+
+
+# sends a length-prefixed json payload over the socket
+def send_msg(sock: socket.socket, payload: dict):
+    data = json.dumps(payload).encode()
+    sock.sendall(struct.pack(&#x27;&gt;I&#x27;, len(data)) + data)
+
+
+# blocks until a full length-prefixed json payload has been read
+def recv_msg(sock: socket.socket) -&gt; dict:
+    def recv_exactly(n):
+        buf = b&#x27;&#x27;
+        while len(buf) &lt; n:
+            chunk = sock.recv(n - len(buf))
+            if not chunk:
+                raise OSError(&#x27;Connection closed.&#x27;)
+            buf += chunk
+        return buf
+    return json.loads(recv_exactly(struct.unpack(&#x27;&gt;I&#x27;, recv_exactly(4))[0]))
+
+
+# drains send_q and writes each message to the socket; signals disconnect on exit
+def net_send_thread(sock: socket.socket, send_q: queue.Queue, signal_q: queue.Queue, log):
+    log(&quot;send_thread started&quot;)
+    try:
+        while True:
+            payload = send_q.get()
+            if payload is DISCONNECTED:
+                log(&quot;send_thread exiting&quot;)
+                break
+            send_msg(sock, payload)
+    except OSError as e:
+        try: log(f&quot;send_thread OSError: {e}&quot;)
+        except Exception: pass
+    finally:
+        try: signal_q.put(DISCONNECTED)
+        except Exception: pass
+        try: sock.close()
+        except Exception: pass
+
+
+# reads messages from the socket into recv_q; signals both signal queues on exit
+def net_recv_thread(sock: socket.socket, recv_q: queue.Queue,
+                    signal_q1: queue.Queue, signal_q2: queue.Queue, log):
+    log(&quot;recv_thread started&quot;)
+    try:
+        while True:
+            recv_q.put(recv_msg(sock))
+    except OSError as e:
+        try: log(f&quot;recv_thread OSError: {e}&quot;)
+        except Exception: pass
+    finally:
+        try: log(&quot;recv_thread exiting&quot;)
+        except Exception: pass
+        try: signal_q1.put(DISCONNECTED)
+        except Exception: pass
+        try: signal_q2.put(DISCONNECTED)
+        except Exception: pass
+        try: sock.close()
+        except Exception: pass
+
+# =============================================================================
+# Sprite helpers
+# =============================================================================
+
+player_sprites: dict[str, pygame.Surface] = {}
+arrow_sprites: dict[str, pygame.Surface] = {}
+
+ARROW_ROTATION = {&#x27;right&#x27;: 0, &#x27;up&#x27;: 90, &#x27;left&#x27;: 180, &#x27;down&#x27;: 270}
+
+
+# loads and caches a player sprite by filename
+def load_player_sprite(filename: str) -&gt; pygame.Surface:
+    sprite = player_sprites.get(filename)
+    if sprite is None:
+        sprite_path = os.path.join(os.path.dirname(__file__), filename)
+        sprite = pygame.image.load(sprite_path).convert_alpha()
+        player_sprites[filename] = sprite
+    return sprite
+
+
+# draws a player sprite scaled by size_multiplier; rotates by heading if heading is not None
+def draw_player_sprite(surface: pygame.Surface, screen_x: int, screen_y: int,
+                       color: tuple[int, int, int], size_multiplier: float,
+                       heading: float | None = None):
+    size = int(PLAYER_SIZE * size_multiplier)
+    sprite = load_player_sprite(&#x27;red_car.png&#x27; if color == COLOR_PLAYER else &#x27;blue_car.png&#x27;)
+    sprite = pygame.transform.scale(sprite, (size, size))
+    if heading is not None:
+        sprite = pygame.transform.rotate(sprite, -math.degrees(heading) - 90.0)
+    surface.blit(sprite, sprite.get_rect(center=(screen_x, screen_y)))
+
+
+# loads and caches a directional arrow sprite, rotated to face the requested direction
+def load_arrow_sprite(direction: str) -&gt; pygame.Surface:
+    sprite = arrow_sprites.get(direction)
+    if sprite is None:
+        path = os.path.join(os.path.dirname(__file__), &#x27;arrow.png&#x27;)
+        base = pygame.image.load(path).convert_alpha()
+        sprite = pygame.transform.rotate(base, ARROW_ROTATION[direction])
+        arrow_sprites[direction] = sprite
+    return sprite
+
+# =============================================================================
+# Physics helpers
+# =============================================================================
+
+# clamps value to the closed interval [low, high]
+def clamp(value: float, low: float, high: float) -&gt; float:
+    return max(low, min(value, high))
+
+
+# returns (normal_x, normal_y, penetration) pushing rect_a out of rect_b, or None
+def aabb_mtv(a: pygame.Rect, b: pygame.Rect) -&gt; tuple[float, float, float] | None:
+    if not a.colliderect(b):
+        return None
+    ox = min(a.right - b.left, b.right - a.left)
+    oy = min(a.bottom - b.top, b.bottom - a.top)
+    if ox &lt;= 0.0 or oy &lt;= 0.0:
+        return None
+    if ox &lt; oy:
+        return (-1.0 if a.centerx &lt; b.centerx else 1.0, 0.0, ox)
+    return (0.0, -1.0 if a.centery &lt; b.centery else 1.0, oy)
+
+
+# checks whether the player rect overlaps the triangular portion of a tri tile
+def tri_mask_overlap(player_rect: pygame.Rect, tile_rect: pygame.Rect,
+                     tile_type: str, tri_masks: dict,
+                     player_mask: pygame.mask.Mask) -&gt; bool:
+    tri_mask = tri_masks.get(tile_type)
+    if tri_mask is None:
+        return False
+    offset = (player_rect.left - tile_rect.left, player_rect.top - tile_rect.top)
+    return tri_mask.overlap(player_mask, offset) is not None
+
+# =============================================================================
+# Game objects
+# =============================================================================
+
+class Tile:
+    def __init__(self, tile_type: str, grid_x: int, grid_y: int):
+        self.tile_type: str = tile_type
+        self.world_rect: pygame.Rect = pygame.Rect(
+            grid_x * TILE_SIZE, grid_y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+
+
+class Map:
+    def __init__(self, filepath: str):
+        with open(filepath) as f:
+            lines = f.read().splitlines()
+
+        self.rows: int = len(lines)
+        self.cols: int = max(len(l) for l in lines)
+        self.pixel_width: int = self.cols * TILE_SIZE
+        self.pixel_height: int = self.rows * TILE_SIZE
+        self.grid: list[list[Tile]] = []
+        self.spawner_positions: list[tuple[float, float]] = []
+        self.player1_spawn: tuple[float, float] = (0.0, 0.0)
+        self.player2_spawn: tuple[float, float] = (0.0, 0.0)
+        self.finish_line_x: float = 0.0
+        self.finish_line_y_min: float = 0.0
+        self.finish_line_y_max: float = 0.0
+        self.interior: set[tuple[int, int]] = set()
+
+        finish_tiles = self.parse_grid(lines)
+        self.validate_finish_line(finish_tiles)
+        self.infer_diagonal_tiles()
+        self.compute_interior()
+
+    # parses lines into self.grid and collects spawn/finish/spawner positions
+    def parse_grid(self, lines: list[str]) -&gt; list[tuple[int, int]]:
+        finish_tiles: list[tuple[int, int]] = []
+        p1_spawn: tuple[float, float] | None = None
+        p2_spawn: tuple[float, float] | None = None
+        for r, line in enumerate(lines):
+            row: list[Tile] = []
+            for c in range(self.cols):
+                ch = line[c] if c &lt; len(line) else &#x27; &#x27;
+                tt = CHAR_TO_TILE_TYPE.get(ch, &#x27;open&#x27;)
+                center = (c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2)
+                if tt == &#x27;player1_spawn&#x27;:
+                    p1_spawn = center
+                elif tt == &#x27;player2_spawn&#x27;:
+                    p2_spawn = center
+                elif tt == &#x27;finish_line&#x27;:
+                    finish_tiles.append((r, c))
+                elif tt == &#x27;spawner&#x27;:
+                    self.spawner_positions.append(center)
+                row.append(Tile(tt, c, r))
+            self.grid.append(row)
+        if p1_spawn is None:
+            raise ValueError(&quot;Map missing &#x27;1&#x27; spawn.&quot;)
+        if p2_spawn is None:
+            raise ValueError(&quot;Map missing &#x27;2&#x27; spawn.&quot;)
+        self.player1_spawn = p1_spawn
+        self.player2_spawn = p2_spawn
+        return finish_tiles
+
+    # confirms the finish line is a single contiguous vertical column of the expected length
+    def validate_finish_line(self, finish_tiles: list[tuple[int, int]]):
+        if len(finish_tiles) != FINISH_TILE_COUNT:
+            raise ValueError(
+                f&quot;Map needs {FINISH_TILE_COUNT} &#x27;|&#x27; finish tiles, found {len(finish_tiles)}.&quot;)
+        finish_cols = {c for _, c in finish_tiles}
+        if len(finish_cols) != 1:
+            raise ValueError(&quot;Finish tiles must form a single vertical column.&quot;)
+        finish_rows = sorted(r for r, _ in finish_tiles)
+        if any(b != a + 1 for a, b in zip(finish_rows, finish_rows[1:])):
+            raise ValueError(&quot;Finish tiles must be contiguous.&quot;)
+        fc = next(iter(finish_cols))
+        self.finish_line_x = fc * TILE_SIZE + TILE_SIZE / 2
+        self.finish_line_y_min = finish_rows[0] * TILE_SIZE
+        self.finish_line_y_max = (finish_rows[-1] + 1) * TILE_SIZE
+
+    # replaces wall corners with diagonal tri tiles
+    def infer_diagonal_tiles(self):
+        walls = [[t.tile_type == &#x27;wall&#x27; for t in row] for row in self.grid]
+        for r in range(self.rows - 1):
+            for c in range(self.cols - 1):
+                if walls[r][c] and walls[r + 1][c + 1]:
+                    self.grid[r][c + 1].tile_type = &#x27;tri_bottom_left&#x27;
+                    self.grid[r + 1][c].tile_type = &#x27;tri_top_right&#x27;
+                if walls[r][c + 1] and walls[r + 1][c]:
+                    self.grid[r][c].tile_type = &#x27;tri_bottom_right&#x27;
+                    self.grid[r + 1][c + 1].tile_type = &#x27;tri_top_left&#x27;
+
+    # bfs from p1 spawn through non-wall (or tri) tiles to mark interior coordinates
+    def compute_interior(self):
+        sc = int(self.player1_spawn[0] // TILE_SIZE)
+        sr = int(self.player1_spawn[1] // TILE_SIZE)
+        self.interior = {(sr, sc)}
+        stack = [(sr, sc)]
+        while stack:
+            r, c = stack.pop()
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = r + dr, c + dc
+                if (nr, nc) in self.interior or not (0 &lt;= nr &lt; self.rows and 0 &lt;= nc &lt; self.cols):
+                    continue
+                tt = self.grid[nr][nc].tile_type
+                info = TILE_TYPE_INFO.get(tt, TILE_TYPE_INFO[&#x27;open&#x27;])
+                if info[&#x27;is_wall&#x27;] and not tt.startswith(&#x27;tri_&#x27;):
+                    continue
+                self.interior.add((nr, nc))
+                stack.append((nr, nc))
+
+    # returns True if the world coordinate falls inside the playable region
+    def is_interior(self, world_x: float, world_y: float) -&gt; bool:
+        return (int(world_y) // TILE_SIZE, int(world_x) // TILE_SIZE) in self.interior
+
+    # bfs outward from (world_x, world_y) to find center of nearest interior tile
+    def nearest_interior_center(self, world_x: float, world_y: float) -&gt; tuple[float, float]:
+        start_r = int(world_y) // TILE_SIZE
+        start_c = int(world_x) // TILE_SIZE
+        if (start_r, start_c) in self.interior:
+            return (start_c * TILE_SIZE + TILE_SIZE / 2, start_r * TILE_SIZE + TILE_SIZE / 2)
+        visited = {(start_r, start_c)}
+        q = [(start_r, start_c)]
+        while q:
+            next_q = []
+            for r, c in q:
+                for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    nr, nc = r + dr, c + dc
+                    if (nr, nc) in visited or not (0 &lt;= nr &lt; self.rows and 0 &lt;= nc &lt; self.cols):
+                        continue
+                    visited.add((nr, nc))
+                    if (nr, nc) in self.interior:
+                        return (nc * TILE_SIZE + TILE_SIZE / 2, nr * TILE_SIZE + TILE_SIZE / 2)
+                    next_q.append((nr, nc))
+            q = next_q
+        return self.player1_spawn
+
+    # returns all tiles whose grid cells overlap the given world rect
+    def get_tiles_in_rect(self, world_rect: pygame.Rect) -&gt; list[Tile]:
+        c0 = max(0, world_rect.left // TILE_SIZE)
+        c1 = min(self.cols, world_rect.right // TILE_SIZE + 1)
+        r0 = max(0, world_rect.top // TILE_SIZE)
+        r1 = min(self.rows, world_rect.bottom // TILE_SIZE + 1)
+        return [self.grid[r][c] for r in range(r0, r1) for c in range(c0, c1)]
+
+    # rasterises the full map into a single transparent surface for camera blitting
+    def build_surface(self) -&gt; pygame.Surface:
+        surf = pygame.Surface((self.pixel_width, self.pixel_height), pygame.SRCALPHA)
+        for row in self.grid:
+            for tile in row:
+                info = TILE_TYPE_INFO.get(tile.tile_type, TILE_TYPE_INFO[&#x27;open&#x27;])
+                wr = tile.world_rect
+                is_interior = (wr.top // TILE_SIZE, wr.left // TILE_SIZE) in self.interior
+                if info[&#x27;shape&#x27;] == &#x27;rect&#x27;:
+                    fill = info[&#x27;color&#x27;] if info[&#x27;is_wall&#x27;] or is_interior else COLOR_BACKGROUND
+                    pygame.draw.rect(surf, fill, wr)
+                elif info[&#x27;shape&#x27;] == &#x27;arrow&#x27;:
+                    pygame.draw.rect(surf, COLOR_OPEN if is_interior else COLOR_BACKGROUND, wr)
+                    if is_interior:
+                        sprite = load_arrow_sprite(info[&#x27;direction&#x27;])
+                        surf.blit(sprite, sprite.get_rect(center=wr.center))
+                else:
+                    pygame.draw.rect(surf, COLOR_OPEN if is_interior else COLOR_BACKGROUND, wr)
+                    m = TILE_SIZE - 1
+                    pts = [(int(wr.x + px * m), int(wr.y + py * m)) for px, py in info[&#x27;points&#x27;]]
+                    pygame.draw.polygon(surf, info[&#x27;color&#x27;], pts)
+        return surf
+
+
+class Camera:
+    def __init__(self, viewport_w: int, viewport_h: int):
+        self.viewport_w: int = viewport_w
+        self.viewport_h: int = viewport_h
+        self.offset_x: float = 0.0
+        self.offset_y: float = 0.0
+        self.heading: float = 0.0
+
+    # positions the viewport so the world coordinate is at its center
+    def center_on(self, world_x: float, world_y: float):
+        self.offset_x = world_x - self.viewport_w / 2
+        self.offset_y = world_y - self.viewport_h / 2
+
+
+# green shell travels backward in a straight line; red shell homes toward target
+class Shell:
+    def __init__(self, shell_type: str, world_x: float, world_y: float,
+                 heading: float, owner_index: int):
+        self.shell_type: str = shell_type
+        self.world_x: float = world_x
+        self.world_y: float = world_y
+        self.heading: float = heading
+        self.vel_x: float = math.cos(heading) * SHELL_SPEED
+        self.vel_y: float = math.sin(heading) * SHELL_SPEED
+        self.owner_index: int = owner_index
+        self.bounces_remaining: int = 3
+
+    # axis-aligned bounding box centered on the shell&#x27;s world position
+    def get_bounding_rect(self) -&gt; pygame.Rect:
+        h = SHELL_SIZE // 2
+        return pygame.Rect(int(self.world_x) - h, int(self.world_y) - h, SHELL_SIZE, SHELL_SIZE)
+
+    # advances position; red shells curve toward (target_x, target_y)
+    def update(self, dt: float, target_x: float, target_y: float):
+        if self.shell_type == POWERUP_RED_SHELL:
+            dx, dy = target_x - self.world_x, target_y - self.world_y
+            if dx or dy:
+                diff = (math.atan2(dy, dx) - self.heading + math.pi) % (2 * math.pi) - math.pi
+                self.heading += clamp(diff, -RED_SHELL_TURN * dt, RED_SHELL_TURN * dt)
+                self.vel_x = math.cos(self.heading) * SHELL_SPEED
+                self.vel_y = math.sin(self.heading) * SHELL_SPEED
+        self.world_x += self.vel_x * dt
+        self.world_y += self.vel_y * dt
+
+    # returns (nx, ny) wall normal if colliding with a wall tile, else None
+    def hits_wall(self, game_map: Map, tri_masks: dict,
+                  player_mask: pygame.mask.Mask) -&gt; tuple[float, float] | None:
+        rect = self.get_bounding_rect()
+        for tile in game_map.get_tiles_in_rect(rect):
+            info = TILE_TYPE_INFO.get(tile.tile_type, TILE_TYPE_INFO[&#x27;open&#x27;])
+            if not info[&#x27;is_wall&#x27;]:
+                continue
+            if info[&#x27;shape&#x27;] == &#x27;tri&#x27; and not tri_mask_overlap(
+                    rect, tile.world_rect, tile.tile_type, tri_masks, player_mask):
+                continue
+            contact = aabb_mtv(rect, tile.world_rect)
+            return (contact[0], contact[1]) if contact else (1.0, 0.0)
+        return None
+
+    # checks whether the shell rect overlaps the vehicle rect
+    def hits_vehicle(self, vehicle: Vehicle) -&gt; bool:
+        return self.get_bounding_rect().colliderect(vehicle.get_bounding_rect())
+
+    # draws the shell as a colored square with a black outline
+    def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
+        color = COLOR_SHELL_GREEN if self.shell_type == POWERUP_GREEN_SHELL else COLOR_SHELL_RED
+        h = SHELL_SIZE // 2
+        rect = pygame.Rect(screen_x - h, screen_y - h, SHELL_SIZE, SHELL_SIZE)
+        pygame.draw.rect(surface, color, rect)
+        pygame.draw.rect(surface, COLOR_BLACK, rect, 1)
+
+    # serialises the shell to a network-friendly dict
+    def to_dict(self) -&gt; dict:
+        return {&#x27;type&#x27;: self.shell_type,
+                &#x27;x&#x27;: round(self.world_x, 3),
+                &#x27;y&#x27;: round(self.world_y, 3)}
+
+
+# reconstructs a display-only Shell from a network dict (heading and owner are unused on client)
+def shell_from_dict(data: dict) -&gt; Shell:
+    return Shell(data[&#x27;type&#x27;], float(data[&#x27;x&#x27;]), float(data[&#x27;y&#x27;]), 0.0, 0)
+
+
+class PowerupSpawner:
+    def __init__(self, world_x: float, world_y: float):
+        self.world_x: float = world_x
+        self.world_y: float = world_y
+        self.available_powerup: str | None = random.choice(CONSUMABLE_POOL)
+        self.cooldown_timer: float = 0.0
+
+    # axis-aligned bounding box centered on the spawner&#x27;s world position
+    def get_bounding_rect(self) -&gt; pygame.Rect:
+        h = TILE_SIZE // 2
+        return pygame.Rect(int(self.world_x) - h, int(self.world_y) - h, TILE_SIZE, TILE_SIZE)
+
+    # ticks the respawn cooldown and re-rolls a powerup when it expires
+    def update(self, dt: float):
+        if self.available_powerup is None:
+            self.cooldown_timer = max(0.0, self.cooldown_timer - dt)
+            if self.cooldown_timer == 0.0:
+                self.available_powerup = random.choice(CONSUMABLE_POOL)
+
+    # transfers powerup to vehicle if eligible; returns True on success
+    def try_collect(self, vehicle: Vehicle) -&gt; bool:
+        if self.available_powerup is None or vehicle.stored_powerup is not None:
+            return False
+        if not self.get_bounding_rect().colliderect(vehicle.get_bounding_rect()):
+            return False
+        vehicle.stored_powerup = self.available_powerup
+        self.available_powerup = None
+        self.cooldown_timer = SPAWNER_RESPAWN_COOLDOWN
+        return True
+
+    # draws the spawner; dim color while empty, full color while a powerup is available
+    def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
+        h = TILE_SIZE // 2
+        rect = pygame.Rect(screen_x - h, screen_y - h, TILE_SIZE, TILE_SIZE)
+        color = COLOR_SPAWNER if self.available_powerup else COLOR_SPAWNER_EMPTY
+        pygame.draw.rect(surface, color, rect)
+        pygame.draw.rect(surface, COLOR_BLACK, rect, 1)
+
+    # serialises the spawner to a network-friendly dict
+    def to_dict(self) -&gt; dict:
+        return {&#x27;x&#x27;: round(self.world_x, 3), &#x27;y&#x27;: round(self.world_y, 3),
+                &#x27;occupied&#x27;: self.available_powerup is not None}
+
+
+# reconstructs a display-only PowerupSpawner from a network dict
+def spawner_from_dict(data: dict) -&gt; PowerupSpawner:
+    sp = PowerupSpawner(float(data[&#x27;x&#x27;]), float(data[&#x27;y&#x27;]))
+    sp.available_powerup = &#x27;occupied&#x27; if data.get(&#x27;occupied&#x27;) else None
+    return sp
+
+
+class Vehicle:
+    def __init__(self, start_x: float, start_y: float,
+                 throttle_forward_key: int, throttle_back_key: int,
+                 steer_left_key: int, steer_right_key: int,
+                 color: tuple[int, int, int]):
+        self.world_x: float = start_x
+        self.world_y: float = start_y
+        self.vel_x: float = 0.0
+        self.vel_y: float = 0.0
+        self.throttle_input: float = 0.0
+        self.steer_input: float = 0.0
+        self.heading: float = 0.0
+        self.ang_vel: float = 0.0
+        self.prev_world_x: float = start_x
+        self.prev_world_y: float = start_y
+        self.curr_lap: int = 1
+        self.max_lap: int = 1
+        self.race_finished: bool = False
+        self.finish_place: int | None = None
+        self.ignore_first_forward_cross: bool = True
+        self.throttle_forward_key: int = throttle_forward_key
+        self.throttle_back_key: int = throttle_back_key
+        self.steer_left_key: int = steer_left_key
+        self.steer_right_key: int = steer_right_key
+        self.color: tuple[int, int, int] = color
+        self.stored_powerup: str | None = None
+        self.size_multiplier: float = 1.0
+        self.size_timer: float = 0.0
+        self.on_powerup1: bool = False
+        self.on_powerup2: bool = False
+        self.track_history: collections.deque = collections.deque(maxlen=TRACK_HISTORY_MAX)
+        self.track_frame_counter: int = 0
+
+    # axis-aligned bounding box scaled by size_multiplier
+    def get_bounding_rect(self) -&gt; pygame.Rect:
+        size = int(PLAYER_SIZE * self.size_multiplier)
+        h = size // 2
+        return pygame.Rect(int(self.world_x) - h, int(self.world_y) - h, size, size)
+
+    # reads keyboard state into throttle/steer inputs (debug / keyboard mode)
+    def handle_input(self):
+        keys = pygame.key.get_pressed()
+        self.throttle_input = float(int(keys[self.throttle_forward_key]) -
+                                    int(keys[self.throttle_back_key]))
+        self.steer_input = float(int(keys[self.steer_right_key]) -
+                                 int(keys[self.steer_left_key]))
+
+    # integrates angular and linear velocity, applies drag, and advances position
+    def update_physics(self, dt: float):
+        self.prev_world_x, self.prev_world_y = self.world_x, self.world_y
+        if self.size_timer &gt; 0.0:
+            self.size_timer = max(0.0, self.size_timer - dt)
+            if self.size_timer &lt;= 0.0:
+                self.size_multiplier = 1.0
+        ang_acc = PLAYER_ANG_ACCEL * self.steer_input - PLAYER_ANG_DAMP * self.ang_vel
+        self.ang_vel = clamp(self.ang_vel + ang_acc * dt, -PLAYER_MAX_ANG_VEL, PLAYER_MAX_ANG_VEL)
+        self.heading = (self.heading + self.ang_vel * dt) % (2.0 * math.pi)
+        fwd = PLAYER_ACCEL * self.throttle_input
+        self.vel_x = clamp(self.vel_x + (fwd * math.cos(self.heading) - PLAYER_DRAG * self.vel_x) * dt,
+                           -PLAYER_MAX_SPEED_SAFETY, PLAYER_MAX_SPEED_SAFETY)
+        self.vel_y = clamp(self.vel_y + (fwd * math.sin(self.heading) - PLAYER_DRAG * self.vel_y) * dt,
+                           -PLAYER_MAX_SPEED_SAFETY, PLAYER_MAX_SPEED_SAFETY)
+        self.world_x += self.vel_x * dt
+        self.world_y += self.vel_y * dt
+
+    # iteratively pushes the vehicle out of overlapping wall tiles; returns True if any correction was applied
+    def resolve_collisions(self, game_map: Map, tri_masks: dict,
+                           player_mask: pygame.mask.Mask) -&gt; bool:
+        any_corrected = False
+        for _ in range(MAX_COLLISION_PASSES):
+            corrected = False
+            for tile in game_map.get_tiles_in_rect(self.get_bounding_rect()):
+                info = TILE_TYPE_INFO.get(tile.tile_type, TILE_TYPE_INFO[&#x27;open&#x27;])
+                if not info[&#x27;is_wall&#x27;]:
+                    continue
+                rect = self.get_bounding_rect()
+                if info[&#x27;shape&#x27;] == &#x27;tri&#x27; and not tri_mask_overlap(
+                        rect, tile.world_rect, tile.tile_type, tri_masks, player_mask):
+                    continue
+                contact = aabb_mtv(rect, tile.world_rect)
+                if contact is None:
+                    continue
+                nx, ny, pen = contact
+                # push out by penetration plus slop, then reflect velocity along the normal
+                self.world_x += nx * (pen + COLLISION_SLOP)
+                self.world_y += ny * (pen + COLLISION_SLOP)
+                vn = self.vel_x * nx + self.vel_y * ny
+                if vn &lt; 0.0:
+                    b = (1.0 + PLAYER_RESTITUTION) * vn
+                    self.vel_x -= b * nx
+                    self.vel_y -= b * ny
+                corrected = True
+            any_corrected = any_corrected or corrected
+            if not corrected:
+                break
+        if abs(self.vel_x) &lt; 1e-3:
+            self.vel_x = 0.0
+        if abs(self.vel_y) &lt; 1e-3:
+            self.vel_y = 0.0
+        return any_corrected
+
+    # advances the per-frame counter and appends to track_history when it overflows the interval
+    def tick_track_history(self) -&gt; bool:
+        self.track_frame_counter += 1
+        if self.track_frame_counter &lt; TRACK_HISTORY_INTERVAL:
+            return False
+        self.track_frame_counter = 0
+        self.track_history.append((self.world_x, self.world_y))
+        return True
+
+    # draws the rotated player sprite at the screen position
+    def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
+        draw_player_sprite(surface, screen_x, screen_y, self.color, self.size_multiplier,
+                           self.heading)
+
+
+# serialises a vehicle&#x27;s display-relevant state into the network packet shape
+def vehicle_to_dict(v: Vehicle) -&gt; dict:
+    return {&#x27;x&#x27;: round(v.world_x, 3), &#x27;y&#x27;: round(v.world_y, 3),
+            &#x27;heading&#x27;: round(v.heading, 5), &#x27;lap&#x27;: v.max_lap,
+            &#x27;place&#x27;: v.finish_place, &#x27;powerup&#x27;: v.stored_powerup,
+            &#x27;size&#x27;: round(v.size_multiplier, 4)}
+
+# =============================================================================
+# Render helpers
+# =============================================================================
+
+# constructs a centered Rect for a UI button
+def make_button_rect(center_x: int, center_y: int, width: int = 110, height: int = 40) -&gt; pygame.Rect:
+    r = pygame.Rect(0, 0, width, height)
+    r.center = (center_x, center_y)
+    return r
+
+
+# draws a labelled menu-style button; selected highlights with hover color
+def button(screen: pygame.Surface, rect: pygame.Rect, label: str, font: pygame.font.Font,
+           selected: bool = False, bg: tuple = BTN_BG, bg_h: tuple = BTN_BG_HOVER,
+           fg: tuple = BTN_FG, border: tuple = BTN_BORDER, bw: int = 3):
+    pygame.draw.rect(screen, bg_h if selected else bg, rect)
+    pygame.draw.rect(screen, border, rect, bw)
+    s = font.render(label, True, fg)
+    screen.blit(s, s.get_rect(center=rect.center))
+
+
+# blits a surface centered on the given point
+def blit_centered(screen: pygame.Surface, surf: pygame.Surface, center: tuple[int, int]):
+    screen.blit(surf, surf.get_rect(center=center))
+
+
+# draws a white box with a black outline and centered text inside
+def text_box(screen: pygame.Surface, surf: pygame.Surface, box: pygame.Rect, border: int = 2):
+    pygame.draw.rect(screen, COLOR_WHITE, box)
+    pygame.draw.rect(screen, COLOR_BLACK, box, border)
+    screen.blit(surf, surf.get_rect(center=box.center))
+
+
+# renders a centered status screen with the title and a message line
+def render_status_screen(screen: pygame.Surface, title_font: pygame.font.Font,
+                         button_font: pygame.font.Font, message: str):
+    screen.fill((25, 25, 25))
+    blit_centered(screen, title_font.render(&#x27;PiKart&#x27;, True, COLOR_WHITE),
+                  (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 5))
+    blit_centered(screen, button_font.render(message, True, COLOR_GREY_MID),
+                  (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2))
+
+
+# renders the main menu (Play / Quit) with optional error text
+def render_menu(screen: pygame.Surface, play_rect: pygame.Rect, quit_rect: pygame.Rect,
+                title_font: pygame.font.Font, button_font: pygame.font.Font,
+                error_msg: str | None, selected_idx: int = 0):
+    screen.fill((25, 25, 25))
+    blit_centered(screen, title_font.render(&#x27;PiKart&#x27;, True, COLOR_WHITE),
+                  (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 5))
+    if error_msg:
+        blit_centered(screen, button_font.render(error_msg, True, COLOR_ERROR),
+                      (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 55))
+    button(screen, play_rect, &#x27;Play&#x27;, button_font, selected_idx == 0)
+    button(screen, quit_rect, &#x27;Quit&#x27;, button_font, selected_idx == 1)
+
+
+# renders the post-race overlay with optional Play Again button
+def render_post_race(screen: pygame.Surface, play_again_rect: pygame.Rect, menu_rect: pygame.Rect,
+                     title_font: pygame.font.Font, button_font: pygame.font.Font,
+                     selected_idx: int = 0, show_play_again: bool = True):
+    overlay = pygame.Surface((VIEWPORT_WIDTH, VIEWPORT_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 160))
+    screen.blit(overlay, (0, 0))
+    blit_centered(screen, title_font.render(&#x27;Race Over!&#x27;, True, COLOR_WHITE),
+                  (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 80))
+    if show_play_again:
+        button(screen, play_again_rect, &#x27;Play Again&#x27;, button_font, selected_idx == 0)
+    button(screen, menu_rect, &#x27;Exit to Menu&#x27;, button_font,
+           selected_idx == (1 if show_play_again else 0))
+
+
+# scales map_surface to fit the minimap box, preserving aspect ratio
+def build_minimap_surface(map_surface: pygame.Surface, game_map: Map) -&gt; pygame.Surface:
+    scale = min(MINIMAP_W / game_map.pixel_width, MINIMAP_H / game_map.pixel_height)
+    w = max(1, int(game_map.pixel_width * scale))
+    h = max(1, int(game_map.pixel_height * scale))
+    base = pygame.Surface((w, h))
+    base.fill(COLOR_BACKGROUND)
+    scaled = pygame.transform.scale(map_surface, (w, h))
+    base.blit(scaled, (0, 0))
+    return base
+
+
+# draws the mini-map with a 1px border and rotated vehicle sprites in the bottom-right corner
+def render_minimap(screen: pygame.Surface, minimap_surface: pygame.Surface,
+                   vehicles: list, game_map: Map, viewport_rect: pygame.Rect):
+    mw = minimap_surface.get_width()
+    mh = minimap_surface.get_height()
+    scale_x = mw / game_map.pixel_width
+    scale_y = mh / game_map.pixel_height
+    x = viewport_rect.right - MINIMAP_MARGIN - mw
+    y = viewport_rect.bottom - MINIMAP_MARGIN - mh
+    pygame.draw.rect(screen, COLOR_GREY_LIGHT, (x - 1, y - 1, mw + 2, mh + 2))
+    screen.blit(minimap_surface, (x, y))
+    sprite_scale = MINIMAP_SPRITE_SIZE / PLAYER_SIZE
+    for v in vehicles:
+        dx = int(v.world_x * scale_x)
+        dy = int(v.world_y * scale_y)
+        draw_player_sprite(screen, x + dx, y + dy, v.color, sprite_scale, v.heading)
+
+
+# renders a centered text box overlay (used for the countdown and &quot;GO!&quot; message)
+def render_center_overlay_message(screen: pygame.Surface, message: str, font: pygame.font.Font):
+    surf = font.render(message, True, COLOR_BLACK)
+    px, py = 12, 6
+    box = pygame.Rect(VIEWPORT_WIDTH // 2 - (surf.get_width() + 2 * px) // 2,
+                      VIEWPORT_HEIGHT // 2 - (surf.get_height() + 2 * py) // 2,
+                      surf.get_width() + 2 * px, surf.get_height() + 2 * py)
+    text_box(screen, surf, box, border=3)
+
+
+# renders the rotating camera view: blits the map, optional overlays, and rotates around the camera center
+def render_map(screen: pygame.Surface, map_surface: pygame.Surface, camera: Camera,
+               viewport_rect: pygame.Rect | None = None,
+               overlay_vehicles: list | None = None,
+               overlay_shells: list | None = None,
+               overlay_spawners: list | None = None,
+               track_histories: list[tuple[collections.deque, tuple]] | None = None):
+    if viewport_rect is None:
+        viewport_rect = pygame.Rect(0, 0, camera.viewport_w, camera.viewport_h)
+    diag = int(math.ceil(math.sqrt(camera.viewport_w ** 2 + camera.viewport_h ** 2))) + 2 * TILE_SIZE
+    patch = pygame.Surface((diag, diag), pygame.SRCALPHA)
+    cx = camera.offset_x + camera.viewport_w / 2.0
+    cy = camera.offset_y + camera.viewport_h / 2.0
+    plx, pty = cx - diag / 2.0, cy - diag / 2.0
+    patch.blit(map_surface, (-int(round(plx)), -int(round(pty))))
+    # draw track marks for each player onto the patch in patch-space coordinates
+    if track_histories:
+        for history, color in track_histories:
+            for wx, wy in history:
+                pygame.draw.rect(patch, color, (int(wx - plx) - 1, int(wy - pty) - 1, 2, 2))
+    # draw spawners under vehicles, vehicles under shells
+    for group in (overlay_spawners, overlay_vehicles, overlay_shells):
+        if group:
+            for obj in group:
+                obj.draw(patch, int(round(obj.world_x - plx)), int(round(obj.world_y - pty)))
+    rotated = pygame.transform.rotate(patch, math.degrees(camera.heading) + 90.0)
+    screen.blit(rotated, rotated.get_rect(center=viewport_rect.center))
+
+
+# renders the in-game HUD: lap counter, total/lap timers, optional finish placement, and stored powerup
+def render_hud(screen: pygame.Surface, viewport_rect: pygame.Rect,
+               max_lap: int, total_laps: int, total_timer: float, lap_timer: float,
+               finish_place: int | None, hud_font: pygame.font.Font,
+               place_font: pygame.font.Font, stored_powerup: str | None = None):
+    w, h, m = 46, 22, 5
+    lap_box = pygame.Rect(viewport_rect.right - m - w, viewport_rect.top + m, w, h)
+    text_box(screen, hud_font.render(f&quot;{min(max_lap, total_laps)}/{total_laps}&quot;, True, COLOR_BLACK),
+             lap_box)
+
+    def fmt(t):
+        return f&quot;{int(t // 60)}:{t % 60:05.2f}&quot;
+
+    ts = hud_font.render(f&quot;T: {fmt(total_timer)}&quot;, True, (0, 140, 0))
+    ls = hud_font.render(f&quot;L: {fmt(lap_timer)}&quot;, True, (0, 140, 0))
+    cw, px, py = max(ts.get_width(), ls.get_width()), 5, 3
+    box = pygame.Rect(viewport_rect.centerx - (cw + 2 * px) // 2, viewport_rect.top + m,
+                      cw + 2 * px, ts.get_height() + ls.get_height() + 2 + 2 * py)
+    pygame.draw.rect(screen, COLOR_WHITE, box)
+    pygame.draw.rect(screen, COLOR_BLACK, box, 1)
+    screen.blit(ts, ts.get_rect(centerx=box.centerx, top=box.top + py))
+    screen.blit(ls, ls.get_rect(centerx=box.centerx, top=box.top + py + ts.get_height() + 2))
+
+    if finish_place is not None:
+        p = finish_place
+        suf = &#x27;th&#x27; if 10 &lt;= p % 100 &lt;= 20 else {1: &#x27;st&#x27;, 2: &#x27;nd&#x27;, 3: &#x27;rd&#x27;}.get(p % 10, &#x27;th&#x27;)
+        s = place_font.render(f&quot;{p}{suf}&quot;, True, COLOR_BLACK)
+        text_box(screen, s,
+                 pygame.Rect(viewport_rect.centerx - (s.get_width() + 14) // 2,
+                             viewport_rect.centery - 20,
+                             s.get_width() + 14, s.get_height() + 10))
+
+    label = POWERUP_LABEL.get(stored_powerup, &#x27;NONE&#x27;) if stored_powerup else &#x27;NONE&#x27;
+    s = hud_font.render(label, True, COLOR_BLACK)
+    pw = max(s.get_width() + 6, w)
+    powerup_box = pygame.Rect(viewport_rect.right - m - pw, lap_box.bottom + 3, pw, h)
+    text_box(screen, s, powerup_box)
+
+# =============================================================================
+# Vibration motor
+# =============================================================================
+
+# pigpio.pi instance, set by motor_init
+motor_pi: object = None
+# monotonic timestamp when the current pulse should turn off
+motor_end_time: float = 0.0
+
+
+# connects pigpio and configures the motor GPIO pin as output
+def motor_init():
+    global motor_pi
+    import pigpio
+    motor_pi = pigpio.pi()
+    if not motor_pi.connected:
+        raise RuntimeError(&quot;pigpiod not running — start with: sudo pigpiod&quot;)
+    motor_pi.set_mode(MOTOR_GPIO, pigpio.OUTPUT)
+    motor_pi.write(MOTOR_GPIO, 0)
+
+
+# turns off the motor and disconnects pigpio
+def motor_stop():
+    global motor_pi
+    if motor_pi is not None:
+        motor_pi.write(MOTOR_GPIO, 0)
+        motor_pi.stop()
+        motor_pi = None
+
+
+# triggers a single fixed-duration rumble pulse, extending the deadline only if the new one is later
+def motor_rumble():
+    global motor_end_time
+    deadline = time.monotonic() + RUMBLE_DURATION
+    if deadline &gt; motor_end_time:
+        motor_end_time = deadline
+    if motor_pi is not None:
+        motor_pi.write(MOTOR_GPIO, 1)
+
+
+# called once per frame; turns the motor off once the pulse has elapsed
+def motor_update():
+    global motor_end_time
+    if motor_pi is not None and motor_end_time &gt; 0.0 and time.monotonic() &gt;= motor_end_time:
+        motor_pi.write(MOTOR_GPIO, 0)
+        motor_end_time = 0.0
+
+
+# immediately cancels any active rumble and turns the motor off
+def motor_cancel():
+    global motor_end_time
+    motor_end_time = 0.0
+    if motor_pi is not None:
+        motor_pi.write(MOTOR_GPIO, 0)
+
+
+# =============================================================================
+# Reset button (GPIO 17)
+# =============================================================================
+
+# pigpio.pi instance used for the reset button, set by reset_btn_init
+reset_pi: object = None
+
+
+# connects pigpio and configures the reset button GPIO pin as a pull-up input
+def reset_btn_init():
+    global reset_pi
+    import pigpio
+    reset_pi = pigpio.pi()
+    if not reset_pi.connected:
+        raise RuntimeError(&quot;pigpiod not running — start with: sudo pigpiod&quot;)
+    reset_pi.set_mode(RESET_GPIO, pigpio.INPUT)
+    reset_pi.set_pull_up_down(RESET_GPIO, pigpio.PUD_UP)
+
+
+# returns True if the reset button is currently pressed (pin low); safe to call every frame
+def reset_btn_poll() -&gt; bool:
+    if reset_pi is None:
+        return False
+    return reset_pi.read(RESET_GPIO) == 0
+
+
+# disconnects the pigpio instance used for the reset button
+def reset_btn_stop():
+    global reset_pi
+    if reset_pi is not None:
+        reset_pi.stop()
+        reset_pi = None
+
+
+# =============================================================================
+# Joystick input
+# =============================================================================
+
+JS_CLK = 5
+JS_MOSI = 6
+JS_MISO = 13
+JS_CS = 19
+JS_SW = 27
+
+JS_SPI_DELAY = 0.00001
+JS_POLL_HZ = 100
+JS_DEADZONE = 8
+JS_CENTER = 256
+JS_MENU_TRIGGER = 80
+JS_MENU_NEUTRAL = 30
+
+# module-level joystick state, raw ADC values (0-512)
+js_pi = None
+js_lock = threading.Lock()
+js_x_raw = JS_CENTER
+js_y_raw = JS_CENTER
+js_menu_x_armed = True
+js_menu_y_armed = True
+js_running = False
+js_prev_pressed: bool = False
+js_press_latched: bool = False
+
+
+# read a 10-bit value from one MCP3008 channel
+def js_read_mcp3008(channel: int) -&gt; int:
+    pi = js_pi
+    pi.write(JS_CS, 0)
+    time.sleep(JS_SPI_DELAY)
+    for bit in [1, 1, (channel &gt;&gt; 2) &amp; 1, (channel &gt;&gt; 1) &amp; 1, channel &amp; 1]:
+        pi.write(JS_MOSI, bit)
+        time.sleep(JS_SPI_DELAY)
+        pi.write(JS_CLK, 1)
+        time.sleep(JS_SPI_DELAY)
+        pi.write(JS_CLK, 0)
+        time.sleep(JS_SPI_DELAY)
+    pi.write(JS_CLK, 1)
+    time.sleep(JS_SPI_DELAY)
+    pi.write(JS_CLK, 0)
+    time.sleep(JS_SPI_DELAY)
+    result = 0
+    for _ in range(10):
+        pi.write(JS_CLK, 1)
+        time.sleep(JS_SPI_DELAY)
+        result = (result &lt;&lt; 1) | pi.read(JS_MISO)
+        pi.write(JS_CLK, 0)
+        time.sleep(JS_SPI_DELAY)
+    pi.write(JS_CS, 1)
+    return result
+
+
+# converts raw value to [-1.0, 1.0] with deadzone applied in raw units
+def js_to_float(raw: int) -&gt; float:
+    v = raw - JS_CENTER
+    if abs(v) &lt; JS_DEADZONE:
+        return 0.0
+    return max(-1.0, min(1.0, v / JS_CENTER))
+
+
+# polling loop run by the joystick thread; updates raw values and latches button rising edges
+def js_poll_loop():
+    global js_x_raw, js_y_raw, js_prev_pressed, js_press_latched
+    interval = 1.0 / JS_POLL_HZ
+    while js_running:
+        x = js_read_mcp3008(0)
+        y = js_read_mcp3008(1)
+        try:
+            pressed = (js_pi.read(JS_SW) == 0)
+        except Exception:
+            pressed = False
+        with js_lock:
+            # detect rising edge and latch it
+            if pressed and not js_prev_pressed:
+                js_press_latched = True
+            js_prev_pressed = pressed
+            js_x_raw = x
+            js_y_raw = y
+        time.sleep(interval)
+
+
+# initialises pigpio, configures pins, and starts the polling thread
+def joystick_init():
+    global js_pi, js_running
+    import pigpio
+    js_pi = pigpio.pi()
+    if not js_pi.connected:
+        raise RuntimeError(&quot;pigpiod not running — start with: sudo pigpiod&quot;)
+    pin_modes = ((JS_CLK, pigpio.OUTPUT), (JS_MOSI, pigpio.OUTPUT),
+                 (JS_MISO, pigpio.INPUT), (JS_CS, pigpio.OUTPUT),
+                 (JS_SW, pigpio.INPUT))
+    for pin, mode in pin_modes:
+        js_pi.set_mode(pin, mode)
+    js_pi.set_pull_up_down(JS_SW, pigpio.PUD_UP)
+    js_pi.write(JS_CS, 1)
+    js_pi.write(JS_CLK, 0)
+    js_running = True
+    threading.Thread(target=js_poll_loop, daemon=True).start()
+
+
+# stops the polling thread and disconnects pigpio
+def joystick_stop():
+    global js_running
+    js_running = False
+    if js_pi:
+        js_pi.stop()
+
+
+# returns the negated y-axis as throttle in [-1.0, 1.0]
+def joystick_throttle() -&gt; float:
+    with js_lock:
+        return -js_to_float(js_y_raw)
+
+
+# returns the x-axis as steering in [-1.0, 1.0]
+def joystick_steer() -&gt; float:
+    with js_lock:
+        return js_to_float(js_x_raw)
+
+
+# atomically consumes a latched joystick press; returns True once per physical press
+def joystick_consume_press() -&gt; bool:
+    global js_press_latched
+    with js_lock:
+        if js_press_latched:
+            js_press_latched = False
+            return True
+        return False
+
+
+# clears any latched press without consuming it (used on state transitions)
+def joystick_clear_latch() -&gt; None:
+    global js_press_latched
+    with js_lock:
+        js_press_latched = False
+
+
+# returns -1, 0, or +1 for a menu move on Y; re-arms after returning to neutral
+def joystick_menu_y() -&gt; int:
+    global js_menu_y_armed
+    with js_lock:
+        y = js_y_raw
+    if js_menu_y_armed:
+        if y &lt; JS_CENTER - JS_MENU_TRIGGER:
+            js_menu_y_armed = False
+            return -1
+        if y &gt; JS_CENTER + JS_MENU_TRIGGER:
+            js_menu_y_armed = False
+            return 1
+    elif abs(y - JS_CENTER) &lt; JS_MENU_NEUTRAL:
+        js_menu_y_armed = True
+    return 0
+
+
+# returns -1, 0, or +1 for a menu move on X; re-arms after returning to neutral
+def joystick_menu_x() -&gt; int:
+    global js_menu_x_armed
+    with js_lock:
+        x = js_x_raw
+    if js_menu_x_armed:
+        if x &lt; JS_CENTER - JS_MENU_TRIGGER:
+            js_menu_x_armed = False
+            return -1
+        if x &gt; JS_CENTER + JS_MENU_TRIGGER:
+            js_menu_x_armed = False
+            return 1
+    elif abs(x - JS_CENTER) &lt; JS_MENU_NEUTRAL:
+        js_menu_x_armed = True
+    return 0</code></pre>
+        <h3>pikart_host.py</h3>
+        <pre><code>from __future__ import annotations
+import math
+import os
+import queue
+import socket
+import sys
+import threading
+import time
+
+import pygame
+
+from pikart_shared import (
+    HOST_PORT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, FPS,
+    TOTAL_LAPS, MAX_PHYSICS_DT, COLOR_BACKGROUND, COLOR_PLAYER, COLOR_PLAYER2,
+    COLOR_TRACK_P1, COLOR_TRACK_P2, COLOR_WHITE, COLOR_ERROR,
+    TILE_TYPE_INFO, TILE_SIZE, PLAYER_SIZE,
+    STATE_MENU, STATE_WAITING, STATE_GAME, STATE_POST_RACE,
+    Map, Camera, Vehicle, Shell, PowerupSpawner,
+    draw_player_sprite,
+    POWERUP_SIZE_GROW, POWERUP_SIZE_SHRINK, POWERUP_GREEN_SHELL, POWERUP_RED_SHELL,
+    POWERUP_SIZE_SCALE, POWERUP_SIZE_DURATION, SHELL_SIZE,
+    BOOST_TILE_DELTA, SLOWDOWN_TILE_DELTA, COLLISION_SLOP,
+    DISCONNECTED, flush_queue, net_send_thread, net_recv_thread,
+    blit_centered, button, make_button_rect,
+    render_menu, render_status_screen, render_post_race,
+    render_center_overlay_message, render_map, render_hud,
+    build_minimap_surface, render_minimap,
+    send_msg, aabb_mtv, vehicle_to_dict,
+    joystick_init, joystick_stop, joystick_throttle, joystick_steer,
+    joystick_consume_press, joystick_menu_x, joystick_menu_y, joystick_clear_latch,
+    motor_init, motor_stop, motor_rumble, motor_update, motor_cancel,
+    reset_btn_init, reset_btn_poll, reset_btn_stop,
+)
+
+DEBUG = &#x27;debug&#x27; in sys.argv
+HOST_IP = &#x27;127.0.0.1&#x27; if DEBUG else &#x27;192.168.50.1&#x27;
+
+if not DEBUG:
+    os.putenv(&#x27;SDL_VIDEODRIVER&#x27;, &#x27;fbcon&#x27;)
+    os.putenv(&#x27;SDL_FBDEV&#x27;, &#x27;/dev/fb0&#x27;)
+    os.putenv(&#x27;SDL_MOUSEDRV&#x27;, &#x27;dummy&#x27;)
+    os.putenv(&#x27;MOUSEDEV&#x27;, &#x27;/dev/null&#x27;)
+    os.putenv(&#x27;DISPLAY&#x27;, &#x27;&#x27;)
+
+if not DEBUG:
+    joystick_init()
+    motor_init()
+    reset_btn_init()
+
+
+def log(msg: str):
+    print(f&quot;[HOST {time.strftime(&#x27;%H:%M:%S&#x27;)}] {msg}&quot;, flush=True)
+
+
+# =============================================================================
+# Host-only constants
+# =============================================================================
+
+STATE_MAP_SELECT = &#x27;map_select&#x27;
+COUNTDOWN_DURATION = 3.0
+GO_DISPLAY_DURATION = 0.75
+
+MAP_ROW_WIDTH = 180
+MAP_ROW_HEIGHT = 26
+MAP_ROW_TOP = 60
+MAP_ROW_SPACING = 34
+
+# =============================================================================
+# Host-only game logic
+# =============================================================================
+
+# resolves an elastic collision between two vehicles; returns True if a correction was applied
+def resolve_vehicle_collision(a: Vehicle, b: Vehicle) -&gt; bool:
+    contact = aabb_mtv(a.get_bounding_rect(), b.get_bounding_rect())
+    if contact is None:
+        return False
+    nx, ny, pen = contact
+    push = (pen + COLLISION_SLOP) * 0.5
+    a.world_x += nx * push
+    a.world_y += ny * push
+    b.world_x -= nx * push
+    b.world_y -= ny * push
+    van = a.vel_x * nx + a.vel_y * ny
+    vbn = b.vel_x * nx + b.vel_y * ny
+    if van - vbn &gt;= 0.0:
+        return True
+    a.vel_x += (vbn - van) * nx
+    a.vel_y += (vbn - van) * ny
+    b.vel_x += (van - vbn) * nx
+    b.vel_y += (van - vbn) * ny
+    return True
+
+
+# updates a player&#x27;s lap counter when they cross the finish line; returns True if the player just finished the race
+def update_lap_progress(player: Vehicle, game_map: Map) -&gt; bool:
+    if player.race_finished:
+        return False
+    fx = game_map.finish_line_x
+    dx = player.world_x - player.prev_world_x
+    crossed = ((player.prev_world_x &lt; fx &lt;= player.world_x) or
+               (player.prev_world_x &gt; fx &gt;= player.world_x))
+    y_cross = player.world_y
+    if abs(dx) &gt; 1e-6:
+        t = max(0.0, min((fx - player.prev_world_x) / dx, 1.0))
+        y_cross = player.prev_world_y + t * (player.world_y - player.prev_world_y)
+    if not (game_map.finish_line_y_min &lt;= y_cross &lt;= game_map.finish_line_y_max and crossed):
+        return False
+    if dx &gt; 0.0:
+        if player.ignore_first_forward_cross:
+            player.ignore_first_forward_cross = False
+            return False
+        if player.curr_lap &gt;= TOTAL_LAPS:
+            player.race_finished = True
+            return True
+        player.curr_lap += 1
+        player.max_lap = max(player.max_lap, player.curr_lap)
+    elif dx &lt; 0.0:
+        player.curr_lap = max(1, player.curr_lap - 1)
+    return False
+
+
+# applies passive boost/slowdown effects when a vehicle drives onto a powerup tile
+def apply_passive_tile_effects(vehicle: Vehicle, game_map: Map):
+    rect = vehicle.get_bounding_rect()
+    on_p1 = on_p2 = False
+    for tile in game_map.get_tiles_in_rect(rect):
+        if tile.tile_type == &#x27;powerup1&#x27; and rect.colliderect(tile.world_rect):
+            on_p1 = True
+        elif tile.tile_type == &#x27;powerup2&#x27; and rect.colliderect(tile.world_rect):
+            on_p2 = True
+    if on_p1 and not vehicle.on_powerup1:
+        vehicle.vel_x += math.cos(vehicle.heading) * BOOST_TILE_DELTA
+        vehicle.vel_y += math.sin(vehicle.heading) * BOOST_TILE_DELTA
+    if on_p2 and not vehicle.on_powerup2:
+        speed = math.hypot(vehicle.vel_x, vehicle.vel_y)
+        if speed &gt; 1e-3:
+            f = max(0.0, speed - SLOWDOWN_TILE_DELTA) / speed
+            vehicle.vel_x *= f
+            vehicle.vel_y *= f
+    vehicle.on_powerup1 = on_p1
+    vehicle.on_powerup2 = on_p2
+
+
+# consumes the vehicle&#x27;s stored powerup and applies its effect; spawns a shell if a shell type
+def activate_consumable(vehicle: Vehicle, opponent: Vehicle, shells: list, owner_index: int):
+    ptype = vehicle.stored_powerup
+    if ptype is None:
+        return
+    vehicle.stored_powerup = None
+    if ptype == POWERUP_SIZE_GROW:
+        vehicle.size_multiplier = POWERUP_SIZE_SCALE
+        vehicle.size_timer = POWERUP_SIZE_DURATION
+    elif ptype == POWERUP_SIZE_SHRINK:
+        vehicle.size_multiplier = 1.0 / POWERUP_SIZE_SCALE
+        vehicle.size_timer = POWERUP_SIZE_DURATION
+    elif ptype in (POWERUP_GREEN_SHELL, POWERUP_RED_SHELL):
+        is_green = ptype == POWERUP_GREEN_SHELL
+        h = (vehicle.heading + math.pi) % (2 * math.pi) if is_green else vehicle.heading
+        spawn_x = vehicle.world_x + math.cos(h) * (PLAYER_SIZE + SHELL_SIZE)
+        spawn_y = vehicle.world_y + math.sin(h) * (PLAYER_SIZE + SHELL_SIZE)
+        shells.append(Shell(ptype, spawn_x, spawn_y, h, owner_index))
+
+# =============================================================================
+# Host-only render
+# =============================================================================
+
+# renders the map-selection screen with one button per available map
+def render_map_select(screen: pygame.Surface, map_names: list[str],
+                      map_row_rects: list[pygame.Rect],
+                      title_font: pygame.font.Font, button_font: pygame.font.Font,
+                      selected_idx: int = 0):
+    screen.fill((25, 25, 25))
+    blit_centered(screen, title_font.render(&#x27;Select Map&#x27;, True, COLOR_WHITE),
+                  (VIEWPORT_WIDTH // 2, 20))
+    for i, (name, rect) in enumerate(zip(map_names, map_row_rects)):
+        button(screen, rect, name, button_font, selected_idx == i)
+    if not map_names:
+        blit_centered(screen, button_font.render(&#x27;No .txt maps found.&#x27;, True, COLOR_ERROR),
+                      (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2))
+
+
+# returns the sorted basenames (without extension) of all .txt map files in the working directory
+def scan_map_files() -&gt; list[str]:
+    return sorted(os.path.splitext(n)[0] for n in os.listdir(&#x27;.&#x27;)
+                  if n.lower().endswith(&#x27;.txt&#x27;) and os.path.isfile(n))
+
+
+# builds the triangular wall masks (per tri tile type) and the player-sized solid mask
+def build_masks() -&gt; tuple[dict, pygame.mask.Mask]:
+    def tri_mask(pts):
+        surf = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+        m = TILE_SIZE - 1
+        pygame.draw.polygon(surf, COLOR_WHITE, [(int(px * m), int(py * m)) for px, py in pts])
+        return pygame.mask.from_surface(surf)
+    tri_masks = {t: tri_mask(info[&#x27;points&#x27;])
+                 for t, info in TILE_TYPE_INFO.items() if info.get(&#x27;shape&#x27;) == &#x27;tri&#x27;}
+    surf = pygame.Surface((PLAYER_SIZE, PLAYER_SIZE), pygame.SRCALPHA)
+    pygame.draw.rect(surf, COLOR_WHITE, surf.get_rect())
+    return tri_masks, pygame.mask.from_surface(surf)
+
+# =============================================================================
+# Network
+# =============================================================================
+
+# accepts one connection on the server socket and pushes the result onto result_q
+def accept_thread(server_sock: socket.socket, result_q: queue.Queue):
+    log(&quot;accept_thread blocking&quot;)
+    try:
+        conn, addr = server_sock.accept()
+        log(f&quot;accepted from {addr}&quot;)
+        result_q.put(conn)
+    except OSError as e:
+        log(f&quot;accept OSError: {e}&quot;)
+        result_q.put(None)
+
+# =============================================================================
+# Main
+# =============================================================================
+
+pygame.init()
+screen = pygame.display.set_mode((VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
+pygame.display.set_caption(&#x27;PiKart — Host&#x27;)
+clock = pygame.time.Clock()
+pygame.mouse.set_visible(False)
+
+hud_font       = pygame.font.SysFont(None, 14)
+place_font     = pygame.font.SysFont(None, 26)
+countdown_font = pygame.font.SysFont(None, 52)
+title_font     = pygame.font.SysFont(None, 44)
+button_font    = pygame.font.SysFont(None, 22)
+
+tri_masks, player_mask = build_masks()
+full_viewport = pygame.Rect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+
+play_button_rect     = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 27)
+quit_button_rect     = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 + 27)
+post_race_again_rect = make_button_rect(VIEWPORT_WIDTH // 2 - 60, VIEWPORT_HEIGHT // 2 + 10,
+                                        width=100, height=30)
+post_race_menu_rect  = make_button_rect(VIEWPORT_WIDTH // 2 + 60, VIEWPORT_HEIGHT // 2 + 10,
+                                        width=100, height=30)
+
+current_state = STATE_MENU
+error_msg: str | None = None
+# 0=Play, 1=Quit
+menu_sel = 0
+# index into map_names
+map_sel = 0
+# 0=Play Again, 1=Exit to Menu
+post_sel = 0
+
+game_map: Map | None = None
+map_surface: pygame.Surface | None = None
+minimap_surface: pygame.Surface | None = None
+p1: Vehicle | None = None
+p2: Vehicle | None = None
+camera: Camera | None = None
+map_names: list[str] = []
+map_row_rects: list[pygame.Rect] = []
+
+countdown_remaining = 0.0
+go_display_remaining = 0.0
+next_finish_place = 1
+shells: list[Shell] = []
+spawners: list[PowerupSpawner] = []
+p1_total_timer = 0.0
+p1_lap_timer = 0.0
+p1_prev_lap = 1
+
+server_sock: socket.socket | None = None
+conn_sock: socket.socket | None = None
+accept_result_q = queue.Queue()
+input_q = queue.Queue()
+state_q = queue.Queue()
+last_client_input = {&#x27;throttle&#x27;: 0, &#x27;steer&#x27;: 0, &#x27;activate&#x27;: False}
+p2_collided = False
+p2_shell_hit = False
+
+
+# opens a listening socket and starts the accept thread
+def open_server_socket():
+    global server_sock
+    log(f&quot;opening server socket on {HOST_IP}:{HOST_PORT}&quot;)
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_sock.bind((HOST_IP, HOST_PORT))
+    server_sock.listen(1)
+    flush_queue(accept_result_q)
+    threading.Thread(target=accept_thread, args=(server_sock, accept_result_q), daemon=True).start()
+
+
+# loads the chosen map and resets all per-race state
+def start_race(map_stem: str):
+    global game_map, map_surface, minimap_surface, p1, p2, camera
+    global countdown_remaining, go_display_remaining, next_finish_place
+    global p1_total_timer, p1_lap_timer, shells, spawners, p1_prev_lap
+    global p2_collided, p2_shell_hit
+    game_map = Map(map_stem + &#x27;.txt&#x27;)
+    map_surface = game_map.build_surface()
+    minimap_surface = build_minimap_surface(map_surface, game_map)
+    p1 = Vehicle(*game_map.player1_spawn,
+                 throttle_forward_key=pygame.K_UP, throttle_back_key=pygame.K_DOWN,
+                 steer_left_key=pygame.K_LEFT, steer_right_key=pygame.K_RIGHT,
+                 color=COLOR_PLAYER)
+    p2 = Vehicle(*game_map.player2_spawn,
+                 throttle_forward_key=pygame.K_w, throttle_back_key=pygame.K_s,
+                 steer_left_key=pygame.K_a, steer_right_key=pygame.K_d,
+                 color=COLOR_PLAYER2)
+    camera = Camera(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+    camera.center_on(p1.world_x, p1.world_y)
+    camera.heading = p1.heading
+    countdown_remaining = COUNTDOWN_DURATION
+    go_display_remaining = 0.0
+    next_finish_place = 1
+    p1_total_timer = p1_lap_timer = 0.0
+    p1_prev_lap = 1
+    shells = []
+    spawners = [PowerupSpawner(wx, wy) for wx, wy in game_map.spawner_positions]
+    p2_collided = p2_shell_hit = False
+
+
+# closes the connection and signals the network threads; clears error_msg via the reason argument
+def disconnect(reason: str | None):
+    global conn_sock, current_state, error_msg
+    log(f&quot;disconnect: {reason!r}&quot;)
+    if conn_sock is not None:
+        try: conn_sock.close()
+        except OSError: pass
+        conn_sock = None
+    state_q.put(DISCONNECTED)
+    flush_queue(input_q)
+    error_msg = reason
+    current_state = STATE_MENU
+
+
+# closes the listening socket if it&#x27;s open
+def close_server():
+    global server_sock
+    if server_sock is not None:
+        try: server_sock.close()
+        except OSError: pass
+        server_sock = None
+
+
+# disconnects from the client and tears down the listening socket; returns to the menu
+def return_to_menu():
+    disconnect(None)
+    close_server()
+    if not DEBUG:
+        joystick_clear_latch()
+        motor_cancel()
+
+
+# starts the connection-accepting flow from the menu screen
+def begin_play():
+    global current_state, error_msg
+    error_msg = None
+    open_server_socket()
+    current_state = STATE_WAITING
+
+
+# starts a race or sends the client back to map selection for a replay
+def begin_race(map_stem: str | None, replay: bool):
+    global current_state, map_names, map_row_rects, map_sel
+    if not DEBUG:
+        joystick_clear_latch()
+        motor_cancel()
+    if replay:
+        state_q.put({&#x27;replay&#x27;: True})
+        map_names = scan_map_files()
+        map_row_rects = [make_button_rect(VIEWPORT_WIDTH // 2,
+                                          MAP_ROW_TOP + i * MAP_ROW_SPACING,
+                                          width=MAP_ROW_WIDTH, height=MAP_ROW_HEIGHT)
+                         for i in range(len(map_names))]
+        map_sel = 0
+        current_state = STATE_MAP_SELECT
+    else:
+        send_msg(conn_sock, {&#x27;map&#x27;: map_stem})
+        start_race(map_stem)
+        current_state = STATE_GAME
+
+
+# builds the per-frame state packet sent to the client
+def build_state_packet(game_state: str, countdown: float, go_display: float,
+                       track: bool = False) -&gt; dict:
+    return {
+        &#x27;state&#x27;: game_state,
+        &#x27;countdown&#x27;: round(countdown, 4),
+        &#x27;go&#x27;: go_display &gt; 0.0,
+        &#x27;track&#x27;: track,
+        &#x27;p1&#x27;: vehicle_to_dict(p1),
+        &#x27;p2&#x27;: vehicle_to_dict(p2),
+        &#x27;shells&#x27;: [sh.to_dict() for sh in shells],
+        &#x27;spawners&#x27;: [sp.to_dict() for sp in spawners],
+        &#x27;p2_collided&#x27;: p2_collided,
+        &#x27;p2_shell_hit&#x27;: p2_shell_hit,
+    }
+
+# =============================================================================
+# Main loop
+# =============================================================================
+
+running = True
+while running:
+    dt = min(clock.tick(FPS) / 1000.0, MAX_PHYSICS_DT)
+
+    # GPIO 17 reset button: force-restart to map selection from game or post-race
+    if not DEBUG and reset_btn_poll():
+        if current_state in (STATE_GAME, STATE_POST_RACE):
+            begin_race(None, replay=True)
+
+    # accept a pending client connection if one is ready
+    if current_state == STATE_WAITING:
+        try:
+            result = accept_result_q.get_nowait()
+            if result is None:
+                disconnect(&#x27;Failed to accept connection.&#x27;)
+            else:
+                log(&quot;accepted, starting net threads&quot;)
+                conn_sock = result
+                flush_queue(input_q)
+                flush_queue(state_q)
+                threading.Thread(target=net_send_thread,
+                                 args=(conn_sock, state_q, input_q, log), daemon=True).start()
+                threading.Thread(target=net_recv_thread,
+                                 args=(conn_sock, input_q, input_q, state_q, log), daemon=True).start()
+                state_q.put({&#x27;connected&#x27;: True})
+                map_names = scan_map_files()
+                map_row_rects = [make_button_rect(VIEWPORT_WIDTH // 2,
+                                                  MAP_ROW_TOP + i * MAP_ROW_SPACING,
+                                                  width=MAP_ROW_WIDTH, height=MAP_ROW_HEIGHT)
+                                 for i in range(len(map_names))]
+                if not DEBUG:
+                    joystick_clear_latch()
+                current_state = STATE_MAP_SELECT
+        except queue.Empty:
+            pass
+
+    # drain the latest client input packet
+    if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT):
+        try:
+            item = input_q.get_nowait()
+            if item is DISCONNECTED:
+                log(&quot;DISCONNECTED from input_q&quot;)
+                disconnect(&#x27;Connection lost.&#x27;)
+            else:
+                last_client_input = item
+                # client GPIO 17 pressed: force-restart to map selection
+                if last_client_input.get(&#x27;reset&#x27;) and current_state in (STATE_GAME, STATE_POST_RACE):
+                    begin_race(None, replay=True)
+                    last_client_input = {&#x27;throttle&#x27;: 0, &#x27;steer&#x27;: 0, &#x27;activate&#x27;: False}
+        except queue.Empty:
+            pass
+
+    # joystick menu navigation (skipped in debug mode since joystick is not initialised)
+    if not DEBUG and current_state in (STATE_MENU, STATE_MAP_SELECT, STATE_POST_RACE):
+        my = -joystick_menu_y()
+        mx = joystick_menu_x()
+        if current_state == STATE_MENU and my != 0:
+            menu_sel = 1 - menu_sel
+        elif current_state == STATE_MAP_SELECT and my != 0:
+            map_sel = (map_sel + my) % max(1, len(map_names))
+        elif current_state == STATE_POST_RACE and mx != 0:
+            post_sel = 1 - post_sel
+        if joystick_consume_press():
+            if current_state == STATE_MENU:
+                if menu_sel == 0:
+                    begin_play()
+                else:
+                    running = False
+            elif current_state == STATE_MAP_SELECT and map_names:
+                begin_race(map_names[map_sel], replay=False)
+            elif current_state == STATE_POST_RACE:
+                if post_sel == 0:
+                    begin_race(None, replay=True)
+                else:
+                    return_to_menu()
+
+    # keyboard event handling
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN:
+            key = event.key
+            if key == pygame.K_ESCAPE:
+                if current_state in (STATE_GAME, STATE_POST_RACE, STATE_MAP_SELECT, STATE_WAITING):
+                    return_to_menu()
+                else:
+                    running = False
+            elif DEBUG and key == pygame.K_r and current_state in (STATE_GAME, STATE_POST_RACE):
+                begin_race(None, replay=True)
+            elif current_state == STATE_MENU:
+                if key in (pygame.K_UP, pygame.K_DOWN):
+                    menu_sel = 1 - menu_sel
+                elif key == pygame.K_SPACE:
+                    if menu_sel == 0:
+                        begin_play()
+                    else:
+                        running = False
+            elif current_state == STATE_MAP_SELECT:
+                if key == pygame.K_UP:
+                    map_sel = (map_sel - 1) % max(1, len(map_names))
+                elif key == pygame.K_DOWN:
+                    map_sel = (map_sel + 1) % max(1, len(map_names))
+                elif key == pygame.K_SPACE and map_names:
+                    begin_race(map_names[map_sel], replay=False)
+            elif current_state == STATE_POST_RACE:
+                if key in (pygame.K_LEFT, pygame.K_RIGHT):
+                    post_sel = 1 - post_sel
+                elif key == pygame.K_SPACE:
+                    if post_sel == 0:
+                        begin_race(None, replay=True)
+                    else:
+                        return_to_menu()
+
+    # menu / waiting / map-select / post-race rendering paths
+    if current_state == STATE_MENU:
+        render_menu(screen, play_button_rect, quit_button_rect,
+                    title_font, button_font, error_msg, menu_sel)
+        pygame.display.flip()
+        continue
+
+    if current_state == STATE_WAITING:
+        render_status_screen(screen, title_font, button_font, &#x27;Waiting for player 2...&#x27;)
+        pygame.display.flip()
+        continue
+
+    if current_state == STATE_MAP_SELECT:
+        render_map_select(screen, map_names, map_row_rects,
+                          title_font, button_font, map_sel)
+        pygame.display.flip()
+        continue
+
+    if current_state == STATE_POST_RACE:
+        screen.fill(COLOR_BACKGROUND)
+        render_map(screen, map_surface, camera, full_viewport, overlay_vehicles=[p2])
+        draw_player_sprite(screen, full_viewport.centerx, full_viewport.centery,
+                           p1.color, p1.size_multiplier)
+        render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
+                   p1_total_timer, p1_lap_timer, p1.finish_place,
+                   hud_font, place_font, p1.stored_powerup)
+        render_minimap(screen, minimap_surface, [p1, p2], game_map, full_viewport)
+        render_post_race(screen, post_race_again_rect, post_race_menu_rect,
+                         title_font, button_font, post_sel)
+        pygame.display.flip()
+        state_q.put(build_state_packet(STATE_POST_RACE, 0.0, 0.0))
+        continue
+
+    # state: STATE_GAME
+    if not DEBUG:
+        motor_update()
+    p2_collided = False
+    p2_shell_hit = False
+
+    # countdown / go-banner timers
+    if countdown_remaining &gt; 0.0:
+        countdown_remaining = max(0.0, countdown_remaining - dt)
+        if countdown_remaining == 0.0:
+            go_display_remaining = GO_DISPLAY_DURATION
+    if go_display_remaining &gt; 0.0:
+        go_display_remaining = max(0.0, go_display_remaining - dt)
+
+    track_record = False
+    if countdown_remaining &lt;= 0.0:
+        # input: read p1 from joystick or debug keyboard, p2 from latest network packet
+        if DEBUG:
+            p1.handle_input()
+            if p1.race_finished:
+                p1.throttle_input = 0.0
+                p1.steer_input = 0.0
+            elif pygame.key.get_pressed()[pygame.K_SPACE]:
+                activate_consumable(p1, p2, shells, owner_index=0)
+        else:
+            if p1.race_finished:
+                p1.throttle_input = 0.0
+                p1.steer_input = 0.0
+            else:
+                p1.throttle_input = -joystick_throttle()
+                p1.steer_input = joystick_steer()
+                if joystick_consume_press():
+                    activate_consumable(p1, p2, shells, owner_index=0)
+                    motor_rumble()
+
+        if p2.race_finished:
+            p2.throttle_input = 0.0
+            p2.steer_input = 0.0
+        else:
+            p2.throttle_input = float(last_client_input.get(&#x27;throttle&#x27;, 0))
+            p2.steer_input = float(last_client_input.get(&#x27;steer&#x27;, 0))
+            p2_act = bool(last_client_input.get(&#x27;activate&#x27;, False))
+            if p2_act:
+                activate_consumable(p2, p1, shells, owner_index=1)
+
+        # physics + tile effects
+        p1.update_physics(dt)
+        p2.update_physics(dt)
+        apply_passive_tile_effects(p1, game_map)
+        apply_passive_tile_effects(p2, game_map)
+
+        # spawners: tick cooldowns and let either vehicle collect
+        for sp in spawners:
+            sp.update(dt)
+            sp.try_collect(p1)
+            sp.try_collect(p2)
+
+        # shells: advance, bounce off walls, and resolve hits against the target vehicle
+        surviving = []
+        for sh in shells:
+            target = p2 if sh.owner_index == 0 else p1
+            sh.update(dt, target.world_x, target.world_y)
+            wall_normal = sh.hits_wall(game_map, tri_masks, player_mask)
+            if wall_normal is not None:
+                if sh.bounces_remaining &lt;= 0:
+                    continue
+                nx, ny = wall_normal
+                vn = sh.vel_x * nx + sh.vel_y * ny
+                sh.vel_x -= 2.0 * vn * nx
+                sh.vel_y -= 2.0 * vn * ny
+                sh.heading = math.atan2(sh.vel_y, sh.vel_x)
+                sh.bounces_remaining -= 1
+            hit = p2 if sh.owner_index == 0 else p1
+            if sh.hits_vehicle(hit):
+                sh.bounces_remaining -= 1
+                nx, ny = math.cos(sh.heading), math.sin(sh.heading)
+                vn_hit = hit.vel_x * nx + hit.vel_y * ny
+                vn_shell = sh.vel_x * nx + sh.vel_y * ny
+                hit.vel_x += (vn_shell - vn_hit) * nx
+                hit.vel_y += (vn_shell - vn_hit) * ny
+                sh.vel_x -= 2.0 * vn_shell * nx
+                sh.vel_y -= 2.0 * vn_shell * ny
+                sh.heading = math.atan2(sh.vel_y, sh.vel_x)
+                if hit is p1 and not DEBUG:
+                    motor_rumble()
+                if hit is p2:
+                    p2_shell_hit = True
+                if sh.bounces_remaining &lt;= 0:
+                    continue
+            surviving.append(sh)
+        shells = surviving
+
+        # out-of-bounds correction: snap exterior vehicles/shells to nearest interior tile
+        for v in (p1, p2):
+            if not game_map.is_interior(v.world_x, v.world_y):
+                v.world_x, v.world_y = game_map.nearest_interior_center(v.world_x, v.world_y)
+                v.vel_x = v.vel_y = 0.0
+        shells = [sh for sh in shells if game_map.is_interior(sh.world_x, sh.world_y)]
+
+        # lap progress and finishing place assignment
+        for p, fin in ((p1, update_lap_progress(p1, game_map)),
+                       (p2, update_lap_progress(p2, game_map))):
+            if fin:
+                p.finish_place = next_finish_place
+                next_finish_place += 1
+                if not DEBUG:
+                    motor_cancel()
+
+        # p1 timers (only while still racing)
+        if not p1.race_finished:
+            if p1.max_lap &gt; p1_prev_lap:
+                p1_lap_timer = 0.0
+                p1_prev_lap = p1.max_lap
+            p1_total_timer += dt
+            p1_lap_timer += dt
+
+        # wall and vehicle-vehicle collisions; rumble on any p1 collision
+        if p1.resolve_collisions(game_map, tri_masks, player_mask) and not DEBUG and not p1.race_finished:
+            motor_rumble()
+        p2_wall_hit = p2.resolve_collisions(game_map, tri_masks, player_mask)
+        vehicle_hit = resolve_vehicle_collision(p1, p2)
+        if vehicle_hit:
+            p2_collided = True
+            if not DEBUG and not p1.race_finished:
+                motor_rumble()
+        if p2_wall_hit:
+            p2_collided = True
+
+        # transition to post-race once both players have finished
+        if p1.race_finished and p2.race_finished:
+            current_state = STATE_POST_RACE
+            if not DEBUG:
+                joystick_clear_latch()
+
+        # per-frame track history sampling
+        track_record = p1.tick_track_history() or p2.tick_track_history()
+
+    # camera follows p1 with car-aligned heading
+    camera.center_on(p1.world_x, p1.world_y)
+    camera.heading = p1.heading
+
+    # render
+    screen.fill(COLOR_BACKGROUND)
+    render_map(screen, map_surface, camera, full_viewport,
+               overlay_vehicles=[p2], overlay_shells=shells, overlay_spawners=spawners,
+               track_histories=[(p1.track_history, COLOR_TRACK_P1),
+                                (p2.track_history, COLOR_TRACK_P2)])
+    draw_player_sprite(screen, full_viewport.centerx, full_viewport.centery,
+                       p1.color, p1.size_multiplier)
+    render_hud(screen, full_viewport, p1.max_lap, TOTAL_LAPS,
+               p1_total_timer, p1_lap_timer, p1.finish_place,
+               hud_font, place_font, p1.stored_powerup)
+    render_minimap(screen, minimap_surface, [p1, p2], game_map, full_viewport)
+
+    if countdown_remaining &gt; 0.0:
+        render_center_overlay_message(screen, str(int(math.ceil(countdown_remaining))),
+                                      countdown_font)
+    elif go_display_remaining &gt; 0.0:
+        render_center_overlay_message(screen, &#x27;GO!&#x27;, countdown_font)
+
+    pygame.display.flip()
+    state_q.put(build_state_packet(STATE_GAME, countdown_remaining, go_display_remaining,
+                                   track_record))
+
+pygame.quit()
+log(&quot;shutting down&quot;)
+close_server()
+if not DEBUG:
+    joystick_stop()
+    motor_stop()
+    reset_btn_stop()
+sys.exit()</code></pre>
+        <h3>pikart_client.py</h3>
+        <pre><code>from __future__ import annotations
+import collections
+import math
+import queue
+import socket
+import sys
+import threading
+import time
+import os
+
+import pygame
+
+from pikart_shared import (
+    HOST_PORT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, FPS,
+    TOTAL_LAPS, MAX_PHYSICS_DT, COLOR_BACKGROUND, COLOR_PLAYER, COLOR_PLAYER2,
+    COLOR_TRACK_P1, COLOR_TRACK_P2,
+    STATE_MENU, STATE_WAITING, STATE_GAME, STATE_POST_RACE,
+    Map, Camera, Shell, PowerupSpawner,
+    draw_player_sprite, shell_from_dict, spawner_from_dict,
+    DISCONNECTED, flush_queue, net_send_thread, net_recv_thread,
+    make_button_rect, render_menu, render_status_screen, render_post_race,
+    render_center_overlay_message, render_map, render_hud,
+    build_minimap_surface, render_minimap,
+    TRACK_HISTORY_MAX,
+    joystick_init, joystick_stop, joystick_throttle, joystick_steer,
+    joystick_consume_press, joystick_menu_y, joystick_clear_latch,
+    motor_init, motor_stop, motor_rumble, motor_update, motor_cancel,
+    reset_btn_init, reset_btn_poll, reset_btn_stop,
+)
+
+DEBUG = &#x27;debug&#x27; in sys.argv
+HOST_IP = &#x27;127.0.0.1&#x27; if DEBUG else &#x27;192.168.50.1&#x27;
+
+if not DEBUG:
+    os.putenv(&#x27;SDL_VIDEODRIVER&#x27;, &#x27;fbcon&#x27;)
+    os.putenv(&#x27;SDL_FBDEV&#x27;, &#x27;/dev/fb0&#x27;)
+    os.putenv(&#x27;SDL_MOUSEDRV&#x27;, &#x27;dummy&#x27;)
+    os.putenv(&#x27;MOUSEDEV&#x27;, &#x27;/dev/null&#x27;)
+    os.putenv(&#x27;DISPLAY&#x27;, &#x27;&#x27;)
+
+
+if not DEBUG:
+    joystick_init()
+    motor_init()
+    reset_btn_init()
+
+
+def log(msg: str):
+    print(f&quot;[CLIENT {time.strftime(&#x27;%H:%M:%S&#x27;)}] {msg}&quot;, flush=True)
+
+# =============================================================================
+# Network
+# =============================================================================
+
+CONNECT_RETRY_INTERVAL = 0.5
+
+
+# tries to connect to the host until it succeeds or a DISCONNECTED sentinel arrives on result_q
+def connect_thread(result_q: queue.Queue):
+    log(&quot;connect_thread started&quot;)
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2.0)
+            log(f&quot;attempt {attempt} → {HOST_IP}:{HOST_PORT}&quot;)
+            sock.connect((HOST_IP, HOST_PORT))
+            log(f&quot;attempt {attempt} succeeded&quot;)
+            result_q.put(sock)
+            return
+        except OSError as e:
+            log(f&quot;attempt {attempt} failed: {e}&quot;)
+            sock.close()
+            time.sleep(CONNECT_RETRY_INTERVAL)
+            # check for cancellation between retries
+            try:
+                item = result_q.get_nowait()
+                if item is DISCONNECTED:
+                    log(&quot;connect_thread cancelled&quot;)
+                    return
+                result_q.put(item)
+            except queue.Empty:
+                pass
+
+# =============================================================================
+# Mirror vehicle (display-only, updated from network packets)
+# =============================================================================
+
+class MirrorVehicle:
+    def __init__(self, color: tuple[int, int, int]):
+        self.world_x: float = 0.0
+        self.world_y: float = 0.0
+        self.heading: float = 0.0
+        self.max_lap: int = 1
+        self.finish_place: int | None = None
+        self.stored_powerup: str | None = None
+        self.size_multiplier: float = 1.0
+        self.color: tuple[int, int, int] = color
+        self.track_history: collections.deque = collections.deque(maxlen=TRACK_HISTORY_MAX)
+
+    # copies fields from a vehicle_to_dict packet onto this mirror
+    def apply_state(self, data: dict):
+        self.world_x = float(data[&#x27;x&#x27;])
+        self.world_y = float(data[&#x27;y&#x27;])
+        self.heading = float(data[&#x27;heading&#x27;])
+        self.max_lap = int(data[&#x27;lap&#x27;])
+        self.finish_place = data.get(&#x27;place&#x27;)
+        self.stored_powerup = data.get(&#x27;powerup&#x27;)
+        self.size_multiplier = float(data.get(&#x27;size&#x27;, 1.0))
+
+    # draws the rotated player sprite at the screen position
+    def draw(self, surface: pygame.Surface, screen_x: int, screen_y: int):
+        draw_player_sprite(surface, screen_x, screen_y, self.color, self.size_multiplier,
+                           self.heading)
+
+# =============================================================================
+# Main
+# =============================================================================
+
+pygame.init()
+screen = pygame.display.set_mode((VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
+pygame.display.set_caption(&#x27;PiKart — Client&#x27;)
+clock = pygame.time.Clock()
+pygame.mouse.set_visible(False)
+
+hud_font       = pygame.font.SysFont(None, 14)
+place_font     = pygame.font.SysFont(None, 26)
+countdown_font = pygame.font.SysFont(None, 52)
+title_font     = pygame.font.SysFont(None, 44)
+button_font    = pygame.font.SysFont(None, 22)
+
+full_viewport = pygame.Rect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+play_button_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 - 27)
+quit_button_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 + 27)
+post_race_menu_rect = make_button_rect(VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2 + 10,
+                                       width=100, height=30)
+
+current_state = STATE_MENU
+error_msg: str | None = None
+waiting_msg = &#x27;Connecting...&#x27;
+# 0=Play, 1=Quit
+menu_sel = 0
+# always 0; client shows only Exit to Menu
+post_sel = 0
+
+game_map: Map | None = None
+map_surface: pygame.Surface | None = None
+minimap_surface: pygame.Surface | None = None
+
+p2_mirror = MirrorVehicle(color=COLOR_PLAYER2)
+p1_mirror = MirrorVehicle(color=COLOR_PLAYER)
+camera = Camera(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+
+p2_total_timer: float = 0.0
+p2_lap_timer: float = 0.0
+p2_prev_lap: int = 1
+p2_race_finished = False
+
+latest_countdown: float = 0.0
+latest_go = False
+latest_shells: list[Shell] = []
+latest_spawners: list[PowerupSpawner] = []
+
+connect_result_q = queue.Queue()
+input_q = queue.Queue()
+state_q = queue.Queue()
+sock: socket.socket | None = None
+pending_reset = False
+
+KEY_FORWARD, KEY_BACK, KEY_LEFT, KEY_RIGHT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT
+
+
+# closes the connection and signals the network threads; clears error_msg via the reason argument
+def disconnect(reason: str | None):
+    global sock, current_state, error_msg, waiting_msg
+    log(f&quot;disconnect: {reason!r}&quot;)
+    if sock is not None:
+        try: sock.close()
+        except OSError: pass
+        sock = None
+    input_q.put(DISCONNECTED)
+    flush_queue(state_q)
+    error_msg = reason
+    waiting_msg = &#x27;Connecting...&#x27;
+    current_state = STATE_MENU
+    if not DEBUG:
+        joystick_clear_latch()
+        motor_cancel()
+
+
+# clears menu state and starts the connect thread; transitions to STATE_WAITING
+def begin_connect():
+    global current_state, error_msg, waiting_msg
+    error_msg = None
+    waiting_msg = &#x27;Connecting...&#x27;
+    flush_queue(connect_result_q)
+    flush_queue(input_q)
+    flush_queue(state_q)
+    threading.Thread(target=connect_thread, args=(connect_result_q,), daemon=True).start()
+    current_state = STATE_WAITING
+
+
+# resets the per-race mirror state (timers, finish flag, latest entity lists, track histories)
+def reset_race_state():
+    global p2_total_timer, p2_lap_timer, p2_prev_lap, p2_race_finished
+    global latest_shells, latest_spawners
+    p2_total_timer = 0.0
+    p2_lap_timer = 0.0
+    p2_prev_lap = 1
+    p2_race_finished = False
+    latest_shells = []
+    latest_spawners = []
+    p1_mirror.track_history.clear()
+    p2_mirror.track_history.clear()
+
+# =============================================================================
+# Main loop
+# =============================================================================
+
+running = True
+while running:
+    dt = min(clock.tick(FPS) / 1000.0, MAX_PHYSICS_DT)
+
+    # GPIO 17 reset button: request host to force-restart to map selection
+    if not DEBUG and reset_btn_poll():
+        if current_state in (STATE_GAME, STATE_POST_RACE) and sock is not None:
+            pending_reset = True
+
+    # connection result: promote the socket and start net threads, or surface a connect failure
+    if current_state == STATE_WAITING and sock is None:
+        try:
+            result = connect_result_q.get_nowait()
+            if result is DISCONNECTED or result is None:
+                disconnect(&#x27;Could not connect to host.&#x27;)
+            else:
+                log(&quot;connected, starting net threads&quot;)
+                sock = result
+                sock.settimeout(None)
+                flush_queue(input_q)
+                flush_queue(state_q)
+                threading.Thread(target=net_send_thread,
+                                 args=(sock, input_q, state_q, log), daemon=True).start()
+                threading.Thread(target=net_recv_thread,
+                                 args=(sock, state_q, state_q, input_q, log), daemon=True).start()
+        except queue.Empty:
+            pass
+
+    # drain incoming state packets and dispatch by message kind
+    if current_state in (STATE_WAITING, STATE_GAME, STATE_POST_RACE):
+        try:
+            while True:
+                pkt = state_q.get_nowait()
+                if pkt is DISCONNECTED:
+                    log(f&quot;DISCONNECTED in state={current_state}&quot;)
+                    disconnect(&#x27;Connection lost.&#x27;)
+                    break
+                if &#x27;replay&#x27; in pkt:
+                    waiting_msg = &#x27;Player 1 is selecting a map...&#x27;
+                    current_state = STATE_WAITING
+                elif &#x27;connected&#x27; in pkt:
+                    waiting_msg = &#x27;Player 1 is selecting a map...&#x27;
+                elif &#x27;map&#x27; in pkt and current_state == STATE_WAITING and sock is not None:
+                    log(f&quot;map: {pkt[&#x27;map&#x27;]!r}&quot;)
+                    game_map = Map(pkt[&#x27;map&#x27;] + &#x27;.txt&#x27;)
+                    map_surface = game_map.build_surface()
+                    minimap_surface = build_minimap_surface(map_surface, game_map)
+                    reset_race_state()
+                    p2_mirror.apply_state({&#x27;x&#x27;: game_map.player2_spawn[0],
+                                           &#x27;y&#x27;: game_map.player2_spawn[1],
+                                           &#x27;heading&#x27;: 0.0, &#x27;lap&#x27;: 1, &#x27;place&#x27;: None})
+                    p1_mirror.apply_state({&#x27;x&#x27;: game_map.player1_spawn[0],
+                                           &#x27;y&#x27;: game_map.player1_spawn[1],
+                                           &#x27;heading&#x27;: 0.0, &#x27;lap&#x27;: 1, &#x27;place&#x27;: None})
+                    camera.center_on(p2_mirror.world_x, p2_mirror.world_y)
+                    camera.heading = p2_mirror.heading
+                elif &#x27;state&#x27; in pkt:
+                    latest_countdown = float(pkt.get(&#x27;countdown&#x27;, 0.0))
+                    latest_go = bool(pkt.get(&#x27;go&#x27;, False))
+                    p1_mirror.apply_state(pkt[&#x27;p1&#x27;])
+                    p2_mirror.apply_state(pkt[&#x27;p2&#x27;])
+                    # append a track-history sample on frames the host marked as a record frame
+                    if current_state == STATE_GAME and pkt.get(&#x27;track&#x27;):
+                        pos1 = (p1_mirror.world_x, p1_mirror.world_y)
+                        if not p1_mirror.track_history or p1_mirror.track_history[-1] != pos1:
+                            p1_mirror.track_history.append(pos1)
+                        pos2 = (p2_mirror.world_x, p2_mirror.world_y)
+                        if not p2_mirror.track_history or p2_mirror.track_history[-1] != pos2:
+                            p2_mirror.track_history.append(pos2)
+                    latest_shells = [shell_from_dict(d) for d in pkt.get(&#x27;shells&#x27;, [])]
+                    latest_spawners = [spawner_from_dict(d) for d in pkt.get(&#x27;spawners&#x27;, [])]
+                    if not DEBUG and not p2_race_finished:
+                        if pkt.get(&#x27;p2_collided&#x27;, False) or pkt.get(&#x27;p2_shell_hit&#x27;, False):
+                            motor_rumble()
+                    pkt_state = pkt.get(&#x27;state&#x27;)
+                    if pkt_state == STATE_GAME and current_state == STATE_WAITING:
+                        log(&quot;→ GAME&quot;)
+                        if not DEBUG:
+                            joystick_clear_latch()
+                        current_state = STATE_GAME
+                    elif pkt_state == STATE_POST_RACE and current_state != STATE_POST_RACE:
+                        p2_race_finished = True
+                        if not DEBUG:
+                            motor_cancel()
+                            joystick_clear_latch()
+                        current_state = STATE_POST_RACE
+        except queue.Empty:
+            pass
+
+    # p2 lap and total timers
+    if current_state == STATE_GAME and latest_countdown &lt;= 0.0 and not p2_race_finished:
+        if p2_mirror.max_lap &gt; p2_prev_lap:
+            p2_lap_timer = 0.0
+            p2_prev_lap = p2_mirror.max_lap
+        if p2_mirror.finish_place is not None:
+            p2_race_finished = True
+            if not DEBUG:
+                motor_cancel()
+        if not p2_race_finished:
+            p2_total_timer += dt
+            p2_lap_timer += dt
+
+    # build and send the latest input packet (joystick or debug keyboard)
+    if current_state == STATE_GAME and pending_reset:
+        flush_queue(input_q)
+        input_q.put({&#x27;reset&#x27;: True})
+        pending_reset = False
+    elif current_state == STATE_GAME and latest_countdown &lt;= 0.0 and not p2_race_finished:
+        if DEBUG:
+            keys = pygame.key.get_pressed()
+            throttle = float(int(keys[KEY_FORWARD]) - int(keys[KEY_BACK]))
+            steer = float(int(keys[KEY_RIGHT]) - int(keys[KEY_LEFT]))
+            activate = bool(keys[pygame.K_SPACE])
+        else:
+            throttle = joystick_throttle()
+            steer = joystick_steer()
+            activate = joystick_consume_press()
+            if activate:
+                motor_rumble()
+        flush_queue(input_q)
+        input_q.put({&#x27;throttle&#x27;: throttle, &#x27;steer&#x27;: steer, &#x27;activate&#x27;: activate})
+
+    if current_state == STATE_POST_RACE and pending_reset:
+        flush_queue(input_q)
+        input_q.put({&#x27;reset&#x27;: True})
+        pending_reset = False
+
+    # joystick menu navigation
+    if not DEBUG and current_state in (STATE_MENU, STATE_POST_RACE):
+        my = joystick_menu_y()
+        if current_state == STATE_MENU and my != 0:
+            menu_sel = 1 - menu_sel
+        if joystick_consume_press():
+            if current_state == STATE_MENU:
+                if menu_sel == 0:
+                    log(&quot;Play selected (joystick)&quot;)
+                    begin_connect()
+                else:
+                    running = False
+            elif current_state == STATE_POST_RACE:
+                disconnect(None)
+
+    # keyboard event handling
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN:
+            key = event.key
+            if key == pygame.K_ESCAPE:
+                if current_state in (STATE_GAME, STATE_POST_RACE, STATE_WAITING):
+                    # cancel the connect thread if it&#x27;s still spinning
+                    if current_state == STATE_WAITING and sock is None:
+                        connect_result_q.put(DISCONNECTED)
+                    disconnect(None)
+                else:
+                    running = False
+            elif DEBUG and key == pygame.K_r and current_state in (STATE_GAME, STATE_POST_RACE) and sock is not None:
+                pending_reset = True
+            elif current_state == STATE_MENU:
+                if key in (pygame.K_UP, pygame.K_DOWN):
+                    menu_sel = 1 - menu_sel
+                elif key == pygame.K_SPACE:
+                    if menu_sel == 0:
+                        log(&quot;Play selected&quot;)
+                        begin_connect()
+                    else:
+                        running = False
+            elif current_state == STATE_POST_RACE:
+                if key == pygame.K_SPACE:
+                    disconnect(None)
+
+    # menu / waiting render paths
+    if current_state == STATE_MENU:
+        render_menu(screen, play_button_rect, quit_button_rect,
+                    title_font, button_font, error_msg, menu_sel)
+        pygame.display.flip()
+        continue
+
+    if current_state == STATE_WAITING:
+        render_status_screen(screen, title_font, button_font, waiting_msg)
+        pygame.display.flip()
+        continue
+
+    # game / post-race: camera follows p2 with car-aligned heading
+    camera.center_on(p2_mirror.world_x, p2_mirror.world_y)
+    camera.heading = p2_mirror.heading
+
+    if not DEBUG:
+        motor_update()
+
+    # render world, focal vehicle, hud, minimap, and any centered overlay messages
+    screen.fill(COLOR_BACKGROUND)
+    render_map(screen, map_surface, camera, full_viewport,
+               overlay_vehicles=[p1_mirror], overlay_shells=latest_shells,
+               overlay_spawners=latest_spawners,
+               track_histories=[(p1_mirror.track_history, COLOR_TRACK_P1),
+                                (p2_mirror.track_history, COLOR_TRACK_P2)])
+    draw_player_sprite(screen, full_viewport.centerx, full_viewport.centery,
+                       p2_mirror.color, p2_mirror.size_multiplier)
+    render_hud(screen, full_viewport, p2_mirror.max_lap, TOTAL_LAPS,
+               p2_total_timer, p2_lap_timer, p2_mirror.finish_place,
+               hud_font, place_font, p2_mirror.stored_powerup)
+    render_minimap(screen, minimap_surface, [p1_mirror, p2_mirror], game_map, full_viewport)
+
+    if latest_countdown &gt; 0.0:
+        render_center_overlay_message(screen, str(int(math.ceil(latest_countdown))),
+                                      countdown_font)
+    elif latest_go:
+        render_center_overlay_message(screen, &#x27;GO!&#x27;, countdown_font)
+
+    if current_state == STATE_POST_RACE:
+        render_post_race(screen, post_race_menu_rect, post_race_menu_rect,
+                         title_font, button_font, post_sel, show_play_again=False)
+
+    pygame.display.flip()
+
+pygame.quit()
+if not DEBUG:
+    joystick_stop()
+    motor_stop()
+    reset_btn_stop()
+sys.exit()</code></pre>
+        <h3>create_map.py</h3>
+        <pre><code>import sys
+from PIL import Image
+
+BORDER = 6
+
+if len(sys.argv) != 3:
+    print(&quot;Usage: python3 png_to_map.py input.png output.txt&quot;)
+    sys.exit(1)
+
+input_path  = sys.argv[1]
+output_path = sys.argv[2]
+
+img = Image.open(input_path).convert(&#x27;RGBA&#x27;)
+width, height = img.size
+pixels = img.load()
+
+border_row = &#x27; &#x27; * (width + BORDER * 2)
+lines = []
+
+# top border
+for _ in range(BORDER):
+    lines.append(border_row)
+
+# image rows
+for y in range(height):
+    row = &#x27; &#x27; * BORDER
+    for x in range(width):
+        r, g, b, a = pixels[x, y]
+        row += &#x27;#&#x27; if a &gt; 128 else &#x27; &#x27;
+    row += &#x27; &#x27; * BORDER
+    lines.append(row)
+
+# bottom border
+for _ in range(BORDER):
+    lines.append(border_row)
+
+with open(output_path, &#x27;w&#x27;) as f:
+    f.write(&#x27;\n&#x27;.join(lines) + &#x27;\n&#x27;)
+
+print(f&quot;Written {len(lines)} rows x {len(lines[0])} cols → {output_path}&quot;)</code></pre>
+      </div>
+
+    </div><!-- /.container -->
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+    <script>window.jQuery || document.write('<script src="../../assets/js/vendor/jquery.min.js"><\/script>')</script>
+    <script src="dist/js/bootstrap.min.js"></script>
+  </body>
+</html>

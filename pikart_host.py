@@ -475,7 +475,7 @@ while running:
                 else:
                     return_to_menu()
 
-    # keyboard and mouse event handling
+    # keyboard event handling
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -511,23 +511,6 @@ while running:
                         begin_race(None, replay=True)
                     else:
                         return_to_menu()
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            pos = event.pos
-            if current_state == STATE_MENU:
-                if play_button_rect.collidepoint(pos):
-                    begin_play()
-                elif quit_button_rect.collidepoint(pos):
-                    running = False
-            elif current_state == STATE_MAP_SELECT:
-                for i, rect in enumerate(map_row_rects):
-                    if rect.collidepoint(pos):
-                        begin_race(map_names[i], replay=False)
-                        break
-            elif current_state == STATE_POST_RACE:
-                if post_race_again_rect.collidepoint(pos):
-                    begin_race(None, replay=True)
-                elif post_race_menu_rect.collidepoint(pos):
-                    return_to_menu()
 
     # menu / waiting / map-select / post-race rendering paths
     if current_state == STATE_MENU:

@@ -1,14 +1,3 @@
-"""
-png_to_map.py — converts a black-and-transparent PNG to a PiKart map text file.
-
-Usage:
-    python3 png_to_map.py input.png output.txt
-
-Black pixels  → '#'
-Transparent pixels → ' '
-A 6-space border is added on all sides.
-"""
-
 import sys
 from PIL import Image
 
