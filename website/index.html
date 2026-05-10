@@ -61,9 +61,9 @@
       <hr>
       <div class="center-block">
         <iframe width="640" height="360"
-                src="https://www.youtube.com/embed?v=et91Gea6CPk"
-                frameborder="0" allowfullscreen></iframe>
-        <h4 style="text-align:center;">Demonstration Video</h4>
+                src="https://www.youtube.com/embed/et91Gea6CPk"
+                                style="border:0;" allowfullscreen></iframe>
+                <p class="h4" style="text-align:center;">Demonstration Video</p>
       </div>
 
       <!-- ===== INTRODUCTION ===== -->
@@ -83,14 +83,15 @@
           <div class="col-md-6" style="text-align:center;">
             <img class="img-rounded" src="img/device_side.jpeg"
                  alt="Side view of one PiKart handheld device" style="width:100%;">
-            <h4>Figure 1: Single player device, side view</h4>
+                        <p class="h4">Figure 1: Single player device, side view</p>
           </div>
           <div class="col-md-6" style="text-align:center;">
             <img class="img-rounded" src="img/devices_topdown.jpeg"
                  alt="Top-down view of both PiKart devices" style="width:100%;">
-            <h4>Figure 2: Both devices, top-down view</h4>
+                        <p class="h4">Figure 2: Both devices, top-down view</p>
           </div>
       </div>
+            </div>
 
       <!-- ===== OBJECTIVE ===== -->
       <hr id="obj">
@@ -158,13 +159,13 @@
             <img class="img-rounded" src="img/wiring_diagram.jpeg"
                  alt="Wiring diagram showing connections between Pi, cobbler, MCP3008 ADC, joystick, and vibration motor"
                  style="width:100%;">
-            <h4>Figure 3: Wiring diagram for one player unit</h4>
+                        <p class="h4">Figure 3: Wiring diagram for one player unit</p>
           </div>
           <div class="col-md-6" style="text-align:center;">
             <img class="img-rounded" src="img/enclosure_photo.jpeg"
                  alt="Enclosure design"
                  style="width:100%;">
-            <h4>Figure 4: Enclosure design</h4>
+                        <p class="h4">Figure 4: Enclosure design</p>
           </div>
         </div>
 
@@ -211,7 +212,7 @@
           <img class="img-rounded" src="img/map_pipeline.jpeg"
                alt="Three-step map creation pipeline: source PNG, generated map, and final hand-edited map"
                style="width:80%;">
-          <h4>Figure 5: Map creation pipeline: source PNG, generated map, and final hand-edited map</h4>
+                    <p class="h4">Figure 5: Map creation pipeline: source PNG, generated map, and final hand-edited map</p>
         </div>
 
         <p style="text-align:left;padding:0px 30px;">
@@ -262,7 +263,7 @@
         <img class="img-rounded" src="img/hud_screenshot.jpeg"
             alt="In-game view showing the rotating camera, lap counter, timers, minimap, and powerup indicator"
             style="width:30%;">
-          <h4>Figure 6: In-game HUD during a race</h4>
+                    <p class="h4">Figure 6: In-game HUD during a race</p>
         </div>
 
         <p style="text-align:left;padding:0px 30px;">
@@ -352,7 +353,7 @@
           game unplayable. This turned out to be caused by two factors: a WiFi
           round-trip time of approximately 150&nbsp;ms during a congested lab session, and
           Python&rsquo;s default TCP socket behavior of batching small packets. Disabling batching with <code>TCP_NODELAY</code> forced each
-          outbound packet to be senst immediately, and decoupling the network threads
+          outbound packet to be sent immediately, and decoupling the network threads
           from the render loop ensured packets were not delayed and did not interfere with game logic. After
           both fixes, observed latency under ideal network conditions dropped below 20&nbsp;ms.
         </p>
@@ -484,7 +485,7 @@
           <li>2&times; Raspberry Pi 4 + Cobbler Breakout Board + PiTFT Display: provided in lab</li>
           <li>2&times; 10,000 mAh power bank: provided in lab</li>
           <li>2&times; Analog 2-Axis Thumb Joystick: $6.00</li>
-          <li>2&times; 10-Bit ADC: $4.00</li>
+          <li>2&times; MCP3008 10-Bit ADC: $4.00</li>
           <li>2&times; Vibration Motor: $2.00</li>
           <li>2&times; 3D printed enclosure</li>
         </ul>
